@@ -1,0 +1,36 @@
+# Local build output and editor state
+.dart_tool/
+.flutter-plugins*
+.pub/
+.pub-cache/
+build/
+coverage/
+shots/
+.gradle/
+.kotlin/
+.idea/
+*.iml
+*.log
+*.pyc
+__pycache__/
+.DS_Store
+
+# Credentials, local inputs and per-device settings
+.env
+.env.*
+secrets*.json
+dart_defines*.json
+google-services.json
+key.properties
+local.properties
+*.keystore
+*.jks
+*.pem
+*.p12
+*.pfx
+*.db
+*.sqlite*
+*.apk
+*.aab
+research/
+tools/windows_setup/

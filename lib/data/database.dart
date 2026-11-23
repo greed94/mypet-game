@@ -132,6 +132,8 @@ class Memories extends Table {
   TextColumn get content => text()();
   DateTimeColumn get createdAt => dateTime()();
   BoolColumn get pinned => boolean().withDefault(const Constant(false))();
+  // 같은 초의 두 대화는 응답 도착 순서 대신 주인이 말한 순서로 나눈다.
+  IntColumn get heardEventId => integer().nullable()();
 }
 
 /// 그날 있었던 일. 일기의 재료다.
@@ -272,7 +274,7 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'mypet'));
 
   @override
-  int get schemaVersion => 31;
+  int get schemaVersion => 32;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -367,6 +369,9 @@ class AppDatabase extends _$AppDatabase {
       if (from < 30) await m.addColumn(pets, pets.daycareRecitalStats);
       // v3 전이면 위에서 현재 형태로 기억 표를 처음 만든다.
       if (from >= 3 && from < 31) await m.addColumn(memories, memories.pinned);
+      if (from >= 3 && from < 32) {
+        await m.addColumn(memories, memories.heardEventId);
+      }
       // Drift의 바깥 버전 저장 전에 종료돼도 칸과 버전이 함께 남아야 한다.
       await customStatement('PRAGMA user_version = $to');
     }),
@@ -413,14 +418,20 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> savePet(Pet pet) => update(pets).replace(pet);
 
-  Future<void> addMemory(String content, DateTime at) => into(
-    memories,
-  ).insert(MemoriesCompanion.insert(content: content, createdAt: at));
+  Future<int> addMemory(String content, DateTime at, {int? heardEventId}) =>
+      into(memories).insert(
+        MemoriesCompanion.insert(
+          content: content,
+          createdAt: at,
+          heardEventId: Value(heardEventId),
+        ),
+      );
 
   Future<List<Memory>> recentMemories(int limit) =>
       (select(memories)
             ..orderBy([
               (m) => OrderingTerm.desc(m.createdAt),
+              (m) => OrderingTerm.desc(m.heardEventId),
               (m) => OrderingTerm.desc(m.id),
             ])
             ..limit(limit))
@@ -430,6 +441,7 @@ class AppDatabase extends _$AppDatabase {
       select(memories)..orderBy([
         (m) => OrderingTerm.desc(m.pinned),
         (m) => OrderingTerm.desc(m.createdAt),
+        (m) => OrderingTerm.desc(m.heardEventId),
         (m) => OrderingTerm.desc(m.id),
       ]);
 
@@ -483,7 +495,11 @@ class AppDatabase extends _$AppDatabase {
     return updated > 0;
   }
 
-  Future<void> addEvent(String kind, String detail, DateTime at) => into(
+  Future<int> describeTalk(int id, String detail) =>
+      (update(events)..where((e) => e.id.equals(id) & e.kind.equals('talk')))
+          .write(EventsCompanion(detail: Value(detail)));
+
+  Future<int> addEvent(String kind, String detail, DateTime at) => into(
     events,
   ).insert(EventsCompanion.insert(kind: kind, detail: detail, at: at));
 

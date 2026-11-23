@@ -3289,8 +3289,25 @@ class $MemoriesTable extends Memories with TableInfo<$MemoriesTable, Memory> {
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _heardEventIdMeta = const VerificationMeta(
+    'heardEventId',
+  );
   @override
-  List<GeneratedColumn> get $columns => [id, content, createdAt, pinned];
+  late final GeneratedColumn<int> heardEventId = GeneratedColumn<int>(
+    'heard_event_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    content,
+    createdAt,
+    pinned,
+    heardEventId,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3328,6 +3345,15 @@ class $MemoriesTable extends Memories with TableInfo<$MemoriesTable, Memory> {
         pinned.isAcceptableOrUnknown(data['pinned']!, _pinnedMeta),
       );
     }
+    if (data.containsKey('heard_event_id')) {
+      context.handle(
+        _heardEventIdMeta,
+        heardEventId.isAcceptableOrUnknown(
+          data['heard_event_id']!,
+          _heardEventIdMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -3353,6 +3379,10 @@ class $MemoriesTable extends Memories with TableInfo<$MemoriesTable, Memory> {
         DriftSqlType.bool,
         data['${effectivePrefix}pinned'],
       )!,
+      heardEventId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}heard_event_id'],
+      ),
     );
   }
 
@@ -3367,11 +3397,13 @@ class Memory extends DataClass implements Insertable<Memory> {
   final String content;
   final DateTime createdAt;
   final bool pinned;
+  final int? heardEventId;
   const Memory({
     required this.id,
     required this.content,
     required this.createdAt,
     required this.pinned,
+    this.heardEventId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3380,6 +3412,9 @@ class Memory extends DataClass implements Insertable<Memory> {
     map['content'] = Variable<String>(content);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['pinned'] = Variable<bool>(pinned);
+    if (!nullToAbsent || heardEventId != null) {
+      map['heard_event_id'] = Variable<int>(heardEventId);
+    }
     return map;
   }
 
@@ -3389,6 +3424,9 @@ class Memory extends DataClass implements Insertable<Memory> {
       content: Value(content),
       createdAt: Value(createdAt),
       pinned: Value(pinned),
+      heardEventId: heardEventId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(heardEventId),
     );
   }
 
@@ -3402,6 +3440,7 @@ class Memory extends DataClass implements Insertable<Memory> {
       content: serializer.fromJson<String>(json['content']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       pinned: serializer.fromJson<bool>(json['pinned']),
+      heardEventId: serializer.fromJson<int?>(json['heardEventId']),
     );
   }
   @override
@@ -3412,6 +3451,7 @@ class Memory extends DataClass implements Insertable<Memory> {
       'content': serializer.toJson<String>(content),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'pinned': serializer.toJson<bool>(pinned),
+      'heardEventId': serializer.toJson<int?>(heardEventId),
     };
   }
 
@@ -3420,11 +3460,13 @@ class Memory extends DataClass implements Insertable<Memory> {
     String? content,
     DateTime? createdAt,
     bool? pinned,
+    Value<int?> heardEventId = const Value.absent(),
   }) => Memory(
     id: id ?? this.id,
     content: content ?? this.content,
     createdAt: createdAt ?? this.createdAt,
     pinned: pinned ?? this.pinned,
+    heardEventId: heardEventId.present ? heardEventId.value : this.heardEventId,
   );
   Memory copyWithCompanion(MemoriesCompanion data) {
     return Memory(
@@ -3432,6 +3474,9 @@ class Memory extends DataClass implements Insertable<Memory> {
       content: data.content.present ? data.content.value : this.content,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       pinned: data.pinned.present ? data.pinned.value : this.pinned,
+      heardEventId: data.heardEventId.present
+          ? data.heardEventId.value
+          : this.heardEventId,
     );
   }
 
@@ -3441,13 +3486,14 @@ class Memory extends DataClass implements Insertable<Memory> {
           ..write('id: $id, ')
           ..write('content: $content, ')
           ..write('createdAt: $createdAt, ')
-          ..write('pinned: $pinned')
+          ..write('pinned: $pinned, ')
+          ..write('heardEventId: $heardEventId')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, content, createdAt, pinned);
+  int get hashCode => Object.hash(id, content, createdAt, pinned, heardEventId);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -3455,7 +3501,8 @@ class Memory extends DataClass implements Insertable<Memory> {
           other.id == this.id &&
           other.content == this.content &&
           other.createdAt == this.createdAt &&
-          other.pinned == this.pinned);
+          other.pinned == this.pinned &&
+          other.heardEventId == this.heardEventId);
 }
 
 class MemoriesCompanion extends UpdateCompanion<Memory> {
@@ -3463,17 +3510,20 @@ class MemoriesCompanion extends UpdateCompanion<Memory> {
   final Value<String> content;
   final Value<DateTime> createdAt;
   final Value<bool> pinned;
+  final Value<int?> heardEventId;
   const MemoriesCompanion({
     this.id = const Value.absent(),
     this.content = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.pinned = const Value.absent(),
+    this.heardEventId = const Value.absent(),
   });
   MemoriesCompanion.insert({
     this.id = const Value.absent(),
     required String content,
     required DateTime createdAt,
     this.pinned = const Value.absent(),
+    this.heardEventId = const Value.absent(),
   }) : content = Value(content),
        createdAt = Value(createdAt);
   static Insertable<Memory> custom({
@@ -3481,12 +3531,14 @@ class MemoriesCompanion extends UpdateCompanion<Memory> {
     Expression<String>? content,
     Expression<DateTime>? createdAt,
     Expression<bool>? pinned,
+    Expression<int>? heardEventId,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (content != null) 'content': content,
       if (createdAt != null) 'created_at': createdAt,
       if (pinned != null) 'pinned': pinned,
+      if (heardEventId != null) 'heard_event_id': heardEventId,
     });
   }
 
@@ -3495,12 +3547,14 @@ class MemoriesCompanion extends UpdateCompanion<Memory> {
     Value<String>? content,
     Value<DateTime>? createdAt,
     Value<bool>? pinned,
+    Value<int?>? heardEventId,
   }) {
     return MemoriesCompanion(
       id: id ?? this.id,
       content: content ?? this.content,
       createdAt: createdAt ?? this.createdAt,
       pinned: pinned ?? this.pinned,
+      heardEventId: heardEventId ?? this.heardEventId,
     );
   }
 
@@ -3519,6 +3573,9 @@ class MemoriesCompanion extends UpdateCompanion<Memory> {
     if (pinned.present) {
       map['pinned'] = Variable<bool>(pinned.value);
     }
+    if (heardEventId.present) {
+      map['heard_event_id'] = Variable<int>(heardEventId.value);
+    }
     return map;
   }
 
@@ -3528,7 +3585,8 @@ class MemoriesCompanion extends UpdateCompanion<Memory> {
           ..write('id: $id, ')
           ..write('content: $content, ')
           ..write('createdAt: $createdAt, ')
-          ..write('pinned: $pinned')
+          ..write('pinned: $pinned, ')
+          ..write('heardEventId: $heardEventId')
           ..write(')'))
         .toString();
   }
@@ -7966,6 +8024,7 @@ typedef $$MemoriesTableCreateCompanionBuilder =
       required String content,
       required DateTime createdAt,
       Value<bool> pinned,
+      Value<int?> heardEventId,
     });
 typedef $$MemoriesTableUpdateCompanionBuilder =
     MemoriesCompanion Function({
@@ -7973,6 +8032,7 @@ typedef $$MemoriesTableUpdateCompanionBuilder =
       Value<String> content,
       Value<DateTime> createdAt,
       Value<bool> pinned,
+      Value<int?> heardEventId,
     });
 
 class $$MemoriesTableFilterComposer
@@ -8001,6 +8061,11 @@ class $$MemoriesTableFilterComposer
 
   ColumnFilters<bool> get pinned => $composableBuilder(
     column: $table.pinned,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get heardEventId => $composableBuilder(
+    column: $table.heardEventId,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -8033,6 +8098,11 @@ class $$MemoriesTableOrderingComposer
     column: $table.pinned,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get heardEventId => $composableBuilder(
+    column: $table.heardEventId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$MemoriesTableAnnotationComposer
@@ -8055,6 +8125,11 @@ class $$MemoriesTableAnnotationComposer
 
   GeneratedColumn<bool> get pinned =>
       $composableBuilder(column: $table.pinned, builder: (column) => column);
+
+  GeneratedColumn<int> get heardEventId => $composableBuilder(
+    column: $table.heardEventId,
+    builder: (column) => column,
+  );
 }
 
 class $$MemoriesTableTableManager
@@ -8089,11 +8164,13 @@ class $$MemoriesTableTableManager
                 Value<String> content = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<bool> pinned = const Value.absent(),
+                Value<int?> heardEventId = const Value.absent(),
               }) => MemoriesCompanion(
                 id: id,
                 content: content,
                 createdAt: createdAt,
                 pinned: pinned,
+                heardEventId: heardEventId,
               ),
           createCompanionCallback:
               ({
@@ -8101,11 +8178,13 @@ class $$MemoriesTableTableManager
                 required String content,
                 required DateTime createdAt,
                 Value<bool> pinned = const Value.absent(),
+                Value<int?> heardEventId = const Value.absent(),
               }) => MemoriesCompanion.insert(
                 id: id,
                 content: content,
                 createdAt: createdAt,
                 pinned: pinned,
+                heardEventId: heardEventId,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

@@ -266,6 +266,10 @@ class _HomeScreenState extends State<HomeScreen> {
       case TalkOutcome.noBrain when !_toldAboutKey && !soft:
         _toldAboutKey = true;
         _snack('오른쪽 위 설정에서 AI 서버를 연결하면 ${josa(name, '이/가')} 말을 알아들어요.');
+      case TalkOutcome.recordIssue:
+        _snack('이번 대화 기록 일부를 저장하지 못했어요.');
+      case TalkOutcome.historyUnavailable:
+        _snack('기억을 불러오지 못해 이번에는 폰 안 반응으로 이어갔어요.');
       case TalkOutcome.failed when !_toldAboutAi && !soft:
         _toldAboutAi = true;
         _snack('AI 답변을 받지 못해 이번에는 폰 안 반응으로 이어가요.');

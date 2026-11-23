@@ -80,8 +80,11 @@ class PetController extends ChangeNotifier {
 
   /// 설정에서 AI를 새로 연결하면 직전 실패로 쉬던 것도 푼다.
   set brain(PetBrain? b) {
+    if (_disposed) return;
+    if (!identical(_brain, b)) _supersedeReaction();
     _brain = b;
     _aiDownUntil = null;
+    notifyListeners();
   }
 
   /// 폰 누적 걸음을 한 번 읽는다. 없으면 주머니 걸음을 쓰지 않는다.
@@ -127,7 +130,7 @@ class PetController extends ChangeNotifier {
   bool get uiBusy => _uiBusy;
   set uiBusy(bool v) {
     _uiBusy = v;
-    _noteOwner();
+    _noteOwner(changesReaction: false);
   }
 
   bool _uiBusy = false;
@@ -136,7 +139,7 @@ class PetController extends ChangeNotifier {
   bool get roomHidden => _roomHidden;
   set roomHidden(bool v) {
     _roomHidden = v;
-    _noteOwner();
+    _noteOwner(changesReaction: false);
   }
 
   bool _roomHidden = false;
@@ -213,7 +216,21 @@ class PetController extends ChangeNotifier {
   bool _begged = false;
   DateTime? _begAt;
 
-  void _noteOwner() => _lastOwnerInput = _clock();
+  void _noteOwner({bool changesReaction = true}) {
+    _lastOwnerInput = _clock();
+    if (changesReaction) _supersedeReaction();
+  }
+
+  void _supersedeReaction() {
+    _reactionVersion++;
+    if (bubble == _waitingThought) {
+      bubble = null;
+      _bubbleLeft = 0;
+    }
+  }
+
+  bool _ownsReaction(int version) =>
+      !_disposed && !_resetPending && version == _reactionVersion;
 
   /// 손 베개를 받을 수 있는 때. 집에서, 산책·다시보기·공놀이·쉬 신호·물건 내밀기·창 띄움이 없을 때.
   bool get canOfferHand =>
@@ -239,7 +256,6 @@ class PetController extends ChangeNotifier {
     }
     final now = _clock();
     _stayAwake(now);
-    _gen++;
     final sleepy =
         _asleepAt(now) || _rhythm.isDrowsy(now) || stats.energy < tiredEnergy;
     _play(handSteps(intimacy, handX!, sleepy: sleepy));
@@ -854,7 +870,8 @@ class PetController extends ChangeNotifier {
   bool bubbleFromAi = false;
   double _bubbleLeft = 0;
   String? lastError;
-  int _gen = 0;
+  static const _waitingThought = '…';
+  int _reactionVersion = 0;
 
   static const dailyTalkLimit = 20;
 
@@ -881,7 +898,7 @@ class PetController extends ChangeNotifier {
   /// 앱을 열 때 부른다. 어떻게 반겼는지 돌려준다(가상 테스터가 센다).
   Greeting wake({bool firstMeeting = false}) {
     if (_disposed || _resetPending) return Greeting.none;
-    _gen++;
+    _supersedeReaction();
     final now = _clock();
     final fresh = _wokeAt == null;
     final meeting = firstMeeting && fresh;
@@ -1509,7 +1526,7 @@ class PetController extends ChangeNotifier {
     for (var back = 7; back >= 1; back--) {
       final day = now.subtract(Duration(days: back));
       if (await _db.hasDiary(dayKey(petDate(day)))) continue;
-      await _writeDiary(day, save: true, local: back > 1);
+      await _writeDiary(day, save: true, local: back > 1, automatic: true);
     }
   }
 
@@ -1527,10 +1544,11 @@ class PetController extends ChangeNotifier {
     DateTime day, {
     required bool save,
     required bool local,
+    bool automatic = false,
   }) async {
     final events = await _db.eventsOn(day);
     if (events.isEmpty) {
-      lastError = '그날은 있었던 일이 없어요';
+      if (!automatic) lastError = '그날은 있었던 일이 없어요';
       return null;
     }
     final date = petDate(day);
@@ -1551,7 +1569,7 @@ class PetController extends ChangeNotifier {
           '날짜: ${dayKey(date)} (${_weekday(date)})\n오늘 있었던 일:\n$lines\n\n일기:',
         );
       } on BrainError catch (e) {
-        lastError = e.message;
+        if (!automatic) lastError = e.message;
         Telemetry.track('diary_error', {'error': e.kind.code});
       }
     }
@@ -1560,7 +1578,7 @@ class PetController extends ChangeNotifier {
       for (final e in events) (at: e.at, kind: e.kind, detail: e.detail),
     ], _random);
     if (text == null) {
-      lastError = '일기에 쓸 만한 일이 없어요';
+      if (!automatic) lastError = '일기에 쓸 만한 일이 없어요';
       return null;
     }
     Telemetry.track(save ? 'diary' : 'diary_preview', {
@@ -1581,17 +1599,24 @@ class PetController extends ChangeNotifier {
   Future<void> _greetThought(Duration away, {String? said}) async {
     final b = brain;
     if (b == null || _offline || !_canTalk()) return;
-    final gen = ++_gen;
-    _pet = _pet.copyWith(talksToday: _pet.talksToday + 1);
+    final version = _reactionVersion;
     try {
+      final memories = await _tryTalkStorage('read', _memoryLines);
+      if (memories == null ||
+          !_ownsReaction(version) ||
+          !identical(_brain, b) ||
+          !_takeTalkSlot()) {
+        return;
+      }
       final d = await b.decide(
         systemPrompt,
-        userTurn(stats, await _memoryLines(), _greetInput(away, said: said)),
+        userTurn(stats, memories, _greetInput(away, said: said)),
       );
-      // 기다리는 동안 유저가 말을 걸었으면 그 반응을 덮지 않는다.
-      Telemetry.track('greet_thought', {'shown': gen == _gen});
-      if (gen == _gen) _say(d.thought, 6, ai: true);
+      final current = _ownsReaction(version);
+      Telemetry.track('greet_thought', {'shown': current});
+      if (current) _say(d.thought, 6, ai: true);
     } on BrainError catch (e) {
+      if (!_ownsReaction(version)) return;
       lastError = e.message;
       _aiDownUntil = _clock().add(_retryAfter(e.kind));
       Telemetry.track('greet_error', {'error': e.kind.code});
@@ -1644,7 +1669,6 @@ class PetController extends ChangeNotifier {
     // 말을 걸면 칭찬 기회는 지나간다(위기·힘없는 말 직후 '간식을 주면 칭찬' 안내가 뜨지 않게).
     _praisable = null;
     _praisePending = null;
-    _gen++;
     Telemetry.track('talk', {
       'length': input.length,
       'voice': voice,
@@ -1737,7 +1761,6 @@ class PetController extends ChangeNotifier {
     final b = brain;
     final offline = _offline;
     if (b == null || offline || !_canTalk()) {
-      _replyLocally(input, quiet: quiet);
       final outcome = b == null
           ? TalkOutcome.noBrain
           : offline
@@ -1746,19 +1769,51 @@ class PetController extends ChangeNotifier {
       Telemetry.track('talk_outcome', {
         'outcome': offline ? 'offline' : outcome.name,
       });
-      return outcome;
+      return _localTalk(input, quiet: quiet, outcome: outcome, at: _clock());
     }
-    // 답을 기다리는 동안 연타해도 한도를 넘지 않게 자리를 먼저 잡는다.
-    _pet = _pet.copyWith(talksToday: _pet.talksToday + 1);
+    final version = _reactionVersion;
+    final heardAt = _clock();
 
     _plan.clear();
     _start(const PetStep(Behavior.sit, 20));
-    _say('…', 20);
+    _say(_waitingThought, 20);
+    int? heardEvent;
     try {
-      final d = await b.decide(
-        systemPrompt,
-        userTurn(stats, await _memoryLines(), input),
+      // 다음 날 일기가 먼저 쓰이더라도 주인이 말을 건 사실은 그날 기록에 남긴다.
+      heardEvent = await _tryTalkStorage(
+        'heard',
+        () => _db.addEvent('talk', '주인이 말을 걸었다', heardAt),
       );
+      if (heardEvent != null) Telemetry.track('event', {'kind': 'talk'});
+      final memories = await _tryTalkStorage('read', _memoryLines);
+      if (_disposed || _resetPending || !identical(_brain, b)) {
+        return TalkOutcome.ignored;
+      }
+      // 읽기가 끝난 뒤 실제로 호출할 때만 한 자리를 쓴다. 한도 확인과 횟수 증가는 한 번에 처리한다.
+      if (memories == null || !_takeTalkSlot()) {
+        if (!_ownsReaction(version)) return TalkOutcome.ignored;
+        return await _localTalk(
+          input,
+          quiet: quiet,
+          heardEvent: heardEvent,
+          at: heardAt,
+          outcome: memories == null
+              ? TalkOutcome.historyUnavailable
+              : TalkOutcome.limited,
+        );
+      }
+      final d = await b.decide(systemPrompt, userTurn(stats, memories, input));
+      if (_disposed || !identical(_brain, b)) return TalkOutcome.ignored;
+      // 대화에서 나온 기억은 말한 시각으로 남긴다. 저장 중에도 돌봄이나 새 대화가 시작될 수 있다.
+      final memory = d.memory;
+      final storedMemory =
+          memory != null &&
+          await _tryTalkStorage(
+                'memory',
+                () => _db.addMemory(memory, heardAt, heardEventId: heardEvent),
+              ) !=
+              null;
+      if (!_ownsReaction(version)) return TalkOutcome.ignored;
       // 작은 모델은 숫자 상태를 자주 놓친다. 지친 펫이 뛰어노는 모순은 앱 규칙으로 막는다.
       final tired =
           stats.energy < tiredEnergy &&
@@ -1770,46 +1825,54 @@ class PetController extends ChangeNotifier {
         affection: stats.affection + (warmth > 0 ? _bondUpTo(warmth) : warmth),
       );
       careScore += careTalk;
-      if (d.memory != null) await _db.addMemory(d.memory!, _clock());
       Telemetry.track('talk_outcome', {
         'outcome': 'ai',
         'action': d.action.id,
         'mood_delta': d.moodDelta,
         'affection_delta': d.affectionDelta,
-        'saved_memory': d.memory != null,
+        'saved_memory': storedMemory,
         'thought_length': d.thought.length,
         'overridden_tired': tired,
       });
+      final String detail;
       if (quiet) {
         // 기억과 기분은 AI 답대로 남기고, 보이는 반응만 말없이 곁에(졸려도 말은 하지 않는다).
         _quietBeside();
-        _log(
-          'talk',
-          '주인이 "$input"라고 했다. ${walking ? '말없이 같이 걸었다' : '말없이 옆에 붙어 있었다'}',
-        );
+        detail =
+            '주인이 "$input"라고 했다. ${walking ? '말없이 같이 걸었다' : '말없이 옆에 붙어 있었다'}';
       } else if (tired) {
         _perform(const [PetStep(Behavior.lieBeside, 8)], '졸려… 조금만 쉴래.');
-        _log('talk', '주인이 "$input"라고 했다. 너무 졸려서 옆에 엎드렸다');
+        detail = '주인이 "$input"라고 했다. 너무 졸려서 옆에 엎드렸다';
       } else {
         if (d.action == PetAction.proposeWalk && !walking && !out) {
           walkProposed = true;
           _walkProposedAt = _clock();
         }
         _perform(_stepsFor(d.action), d.thought, ai: true);
-        _log('talk', '주인이 "$input"라고 했다. ${_actionKo(d.action)}');
+        detail = '주인이 "$input"라고 했다. ${_actionKo(d.action)}';
       }
-      return TalkOutcome.ai;
+      final recorded = await _recordTalkDetail(detail, heardEvent, heardAt);
+      if (!_ownsReaction(version)) return TalkOutcome.ignored;
+      return recorded && (memory == null || storedMemory)
+          ? TalkOutcome.ai
+          : TalkOutcome.recordIssue;
     } on BrainError catch (e) {
+      if (!_ownsReaction(version)) return TalkOutcome.ignored;
       lastError = e.message;
       _aiDownUntil = _clock().add(_retryAfter(e.kind));
       Telemetry.track('talk_outcome', {
         'outcome': 'failed',
         'error': e.kind.code,
       });
-      _replyLocally(input, quiet: quiet);
-      return TalkOutcome.failed;
+      return await _localTalk(
+        input,
+        quiet: quiet,
+        heardEvent: heardEvent,
+        at: heardAt,
+        outcome: TalkOutcome.failed,
+      );
     } finally {
-      _save(_clock());
+      if (_ownsReaction(version)) _save(_clock());
     }
   }
 
@@ -1847,14 +1910,57 @@ class PetController extends ChangeNotifier {
     ]);
   }
 
-  void _replyLocally(String input, {bool quiet = false}) {
+  Future<TalkOutcome> _localTalk(
+    String input, {
+    required bool quiet,
+    required TalkOutcome outcome,
+    required DateTime at,
+    int? heardEvent,
+  }) async {
+    final detail = _replyLocally(input, quiet: quiet);
+    final version = _reactionVersion;
+    final recorded =
+        detail == null || await _recordTalkDetail(detail, heardEvent, at);
+    if (!_ownsReaction(version)) return TalkOutcome.ignored;
+    return recorded ? outcome : TalkOutcome.recordIssue;
+  }
+
+  Future<T?> _tryTalkStorage<T>(
+    String part,
+    Future<T> Function() operation,
+  ) async {
+    try {
+      return await operation();
+    } catch (_) {
+      Telemetry.track('talk_storage_error', {'part': part});
+      return null;
+    }
+  }
+
+  Future<bool> _recordTalkDetail(
+    String detail,
+    int? heardEvent,
+    DateTime at,
+  ) async {
+    if (heardEvent != null) {
+      return await _tryTalkStorage(
+            'detail',
+            () => _db.describeTalk(heardEvent, detail),
+          ) ==
+          1;
+    }
+    final id = await _tryTalkStorage(
+      'event',
+      () => _db.addEvent('talk', detail, at),
+    );
+    if (id != null) Telemetry.track('event', {'kind': 'talk'});
+    return id != null;
+  }
+
+  String? _replyLocally(String input, {bool quiet = false}) {
     if (quiet) {
       _quietBeside();
-      _log(
-        'talk',
-        walking ? '주인 목소리가 작았다. 말없이 같이 걸었다' : '주인 목소리가 작았다. 말없이 옆에 붙어 있었다',
-      );
-      return;
+      return walking ? '주인 목소리가 작았다. 말없이 같이 걸었다' : '주인 목소리가 작았다. 말없이 옆에 붙어 있었다';
     }
     switch (parseEveryday(input, _pet.name)) {
       case Everyday.sleep when step.behavior == Behavior.sleep:
@@ -1868,20 +1974,20 @@ class PetController extends ChangeNotifier {
           PetStep(Behavior.sit, 1.5, cue: Cue.sigh, thought: '잘 자… 나도 잘래.'),
           PetStep(Behavior.sleep, 30),
         ]);
-        _log('talk', '주인이 잘 자라고 해 줬다');
+        return '주인이 잘 자라고 해 줬다';
       case Everyday.love:
         stats = stats.copyWith(mood: stats.mood + 3);
         _play(const [
           PetStep(Behavior.happy, 3, cue: Cue.bark, thought: '꼬리가 멈추질 않아!'),
         ]);
-        _log('talk', '주인이 예뻐해 줬다');
+        return '주인이 예뻐해 줬다';
       case Everyday.play when walking || out:
         _play(const [
           PetStep(Behavior.happy, 2, cue: Cue.yip, thought: '집에 가서 놀자!'),
         ]);
       case Everyday.play:
         takeOutBall();
-        _log('talk', '주인이 놀자고 했다');
+        return '주인이 놀자고 했다';
       case Everyday.walk when walking || out || stats.energy < tiredEnergy:
         _play([
           PetStep(
@@ -1907,7 +2013,7 @@ class PetController extends ChangeNotifier {
           ),
           PetStep(Behavior.spin, 2.4),
         ]);
-        _log('talk', '주인이 산책 가자고 해서 문 앞으로 달려갔다');
+        return '주인이 산책 가자고 해서 문 앞으로 달려갔다';
       // 이름만 부른 말과 소원을 묻는 말은 talk()가 먼저 받아서 여기 오지 않는다.
       case Everyday.called:
       case Everyday.wish:
@@ -1916,8 +2022,9 @@ class PetController extends ChangeNotifier {
           PetStep(Behavior.run, 4, targetX: 0.5, thought: '…?'),
           PetStep(Behavior.sit, 2.5),
         ]);
-        _log('talk', '주인이 말을 걸어 줬다. 무슨 말인지는 몰라도 귀를 기울였다');
+        return '주인이 말을 걸어 줬다. 무슨 말인지는 몰라도 귀를 기울였다';
     }
+    return null;
   }
 
   /// 방금 해낸 배우는 중인 개인기. 곧 간식을 주면 칭찬이 되어 한 번 더 해낸 걸로 친다.
@@ -1947,7 +2054,6 @@ class PetController extends ChangeNotifier {
     // 칩을 고르는 동안은 공을 치우지 않는다. 밤엔 몇 초 만에 치워 칩이 사라졌다.
     _ballWait = 0;
     _stayAwake(_clock());
-    _gen++;
     final now = _clock();
     final today = dayKey(petDate(now));
     final before = tricks[t] ?? const TrickProgress();
@@ -2059,7 +2165,6 @@ class PetController extends ChangeNotifier {
     // 자고 있었으면 하나씩 시킬 때처럼 졸린 채로 일어나서 한다.
     final sleepy = step.behavior == Behavior.sleep;
     _stayAwake(_clock());
-    _gen++;
     final now = _clock();
     if (stats.energy < tiredEnergy) {
       _play(const [
@@ -2147,7 +2252,6 @@ class PetController extends ChangeNotifier {
   void takeOutBall() {
     if (walking || out) return;
     _noteOwner();
-    _gen++;
     if (ball != Ball.none) {
       _play(const [PetStep(Behavior.happy, 2, cue: Cue.yip, thought: '던져 줘!')]);
       return;
@@ -2180,7 +2284,7 @@ class PetController extends ChangeNotifier {
     if (ball != Ball.ready) return false;
     ball = Ball.thrown;
     _ballWait = 0;
-    _gen++;
+    _noteOwner();
     _cue(Cue.throwBall);
     final tired = stats.energy < tiredEnergy;
     Telemetry.track('throw', {'tired': tired});
@@ -2344,10 +2448,12 @@ class PetController extends ChangeNotifier {
   /// 문을 열었다. 깊이 자거나 지쳤으면 어디에도 안 나간다(속마음으로 알린다).
   bool canGoOut() {
     if (_soundAsleep) {
+      _supersedeReaction();
       _say('…쿨.', 3);
       return false;
     }
     if (stats.energy < tiredEnergy) {
+      _supersedeReaction();
       _say('지금은 좀 쉬고 싶어…', 4);
       return false;
     }
@@ -2429,6 +2535,7 @@ class PetController extends ChangeNotifier {
   /// 홈캠 다시보기. 장면마다 그 자리로 옮겨 그 동작을 몇 초씩 보여 준다.
   void startReplay() {
     if (homeCam.isEmpty || replaying || out || walking) return;
+    _noteOwner();
     replaying = true;
     _clearBall();
     _replayQueue
@@ -2751,6 +2858,7 @@ class PetController extends ChangeNotifier {
   }
 
   void _beginRecital() {
+    _supersedeReaction();
     if (inDaycare && _recitalStats == null) {
       _recitalStats = stats;
       _pet = _pet.copyWith(daycareRecitalStats: Value(recitalStatsTo(stats)));
@@ -3528,6 +3636,14 @@ class PetController extends ChangeNotifier {
     return _pet.talksToday < dailyTalkLimit;
   }
 
+  bool _takeTalkSlot() {
+    if (!_canTalk()) return false;
+    _pet = _pet.copyWith(talksToday: _pet.talksToday + 1);
+    // 기억을 읽는 동안 화면이 꺼졌을 수 있다. 횟수를 적으며 마지막 방문 시각을 밀지 않는다.
+    _background(_db.savePet(_pet));
+    return true;
+  }
+
   /// 하루가 앞으로 바뀌었으면 하루 한도를 비우고 true. 시계를 하루이틀 되돌린 건(시간대 이동 같은) 같은 날로
   /// 쳐서 한도를 다시 채우지 않는다. 그보다 멀리 되돌렸으면 시계를 바로잡은 것으로 보고 한도만 비운다.
   bool _rollDay(DateTime now) {
@@ -3647,6 +3763,7 @@ class PetController extends ChangeNotifier {
 
   void sleepApp() {
     if (_disposed || _resetPending) return;
+    _supersedeReaction();
     final now = _clock();
     _applyPending(now);
     _save(now);
@@ -4296,6 +4413,8 @@ enum Ball { none, carried, thrown, ready }
 
 enum TalkOutcome {
   ai,
+  recordIssue,
+  historyUnavailable,
   noBrain,
   failed,
   limited,

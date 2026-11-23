@@ -59,6 +59,9 @@ void main() {
       await db.customStatement(
         'ALTER TABLE pets DROP COLUMN daycare_recital_stats',
       );
+      await db.customStatement(
+        'ALTER TABLE memories DROP COLUMN heard_event_id',
+      );
       await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
       await db.customStatement('PRAGMA user_version = 28');
     } finally {

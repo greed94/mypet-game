@@ -10,8 +10,8 @@ import 'package:mypet/pet/treasure.dart';
 import 'package:mypet/pet/tricks.dart';
 
 void main() {
-  // 유저 폰에는 v4 데이터가 있다. v5~v31을 한 번에 거쳐 올라가도 펫과 일기가 남아야 한다.
-  test('v4 DB가 v31로 한 번에 올라가도 펫과 일기가 그대로 남는다', () async {
+  // 유저 폰에는 v4 데이터가 있다. v5~v32를 한 번에 거쳐 올라가도 펫과 일기가 남아야 한다.
+  test('v4 DB가 v32로 한 번에 올라가도 펫과 일기가 그대로 남는다', () async {
     final db = AppDatabase(
       NativeDatabase.memory(
         setup: (raw) {
@@ -142,6 +142,7 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     await db.customStatement(
       'ALTER TABLE pets DROP COLUMN daycare_recital_stats',
     );
+    await db.customStatement('ALTER TABLE memories DROP COLUMN heard_event_id');
     await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
     await db.customStatement('PRAGMA user_version = 25');
     await db.close();
@@ -175,6 +176,7 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     await db.customStatement(
       'ALTER TABLE pets DROP COLUMN daycare_recital_stats',
     );
+    await db.customStatement('ALTER TABLE memories DROP COLUMN heard_event_id');
     await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
     await db.customStatement('PRAGMA user_version = 27');
     await db.close();
@@ -194,6 +196,30 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     expect((await db.kinderPhotoOn('2026-10-04'))!.scene, 'nap');
   });
 
+  test('v31에서 고정한 기억은 발화 순서 열이 생긴 뒤에도 맨 앞에 남는다', () async {
+    final dir = Directory.systemTemp.createTempSync('mypet_pinned_v31_');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/pet.sqlite');
+    final old = AppDatabase(NativeDatabase(file));
+    final at = DateTime(2026, 11, 24, 14);
+    await old.addMemory('먼저 남긴 기억', at);
+    final first = (await old.recentMemories(1)).single;
+    await old.setMemoryPinned(first.id, true);
+    await old.addMemory('나중에 남긴 기억', at);
+    await old.customStatement(
+      'ALTER TABLE memories DROP COLUMN heard_event_id',
+    );
+    await old.customStatement('PRAGMA user_version = 31');
+    await old.close();
+    final next = AppDatabase(NativeDatabase(file));
+    addTearDown(next.close);
+    final saved = await next.conversationMemories();
+    expect(saved.first.id, first.id);
+    expect(saved.first.pinned, isTrue);
+    expect(saved.every((m) => m.heardEventId == null), isTrue);
+    expect((await next.recentMemories(2)).first.content, '나중에 남긴 기억');
+  });
+
   test('v30 기억과 일기를 보존해 다시 열고 고정과 선택 삭제를 저장한다', () async {
     final dir = Directory.systemTemp.createTempSync('mypet_memory_migration_');
     addTearDown(() => dir.deleteSync(recursive: true));
@@ -203,6 +229,7 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     await db.addMemory('강변 산책을 좋아한다.', at);
     await db.addMemory('치즈 냄새를 좋아한다.', at);
     await db.addDiary('2026-11-23', '같이 산책했다.', at);
+    await db.customStatement('ALTER TABLE memories DROP COLUMN heard_event_id');
     await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
     await db.customStatement('PRAGMA user_version = 30');
     await db.close();
@@ -242,6 +269,7 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     await db.customStatement(
       'ALTER TABLE pets DROP COLUMN daycare_recital_stats',
     );
+    await db.customStatement('ALTER TABLE memories DROP COLUMN heard_event_id');
     await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
     await db.customStatement('PRAGMA user_version = 29');
     await db.close();
@@ -255,7 +283,7 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   });
 
   for (final version in [11, 12]) {
-    test('v$version DB가 v31로 올라가면 종 칸은 지우고 펫과 일기는 그대로 둔다', () async {
+    test('v$version DB가 v32로 올라가면 종 칸은 지우고 펫과 일기는 그대로 둔다', () async {
       final dir = Directory.systemTemp.createTempSync('mypet_');
       addTearDown(() => dir.deleteSync(recursive: true));
       final file = File('${dir.path}/mypet.sqlite');
@@ -309,6 +337,9 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       await db.customStatement('DROP TABLE friends');
       await db.customStatement('DROP TABLE known_dogs');
       await db.customStatement('DROP TABLE kinder_photos');
+      await db.customStatement(
+        'ALTER TABLE memories DROP COLUMN heard_event_id',
+      );
       await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
       await db.customStatement('PRAGMA user_version = $version');
       await db.close();

@@ -17,6 +17,7 @@ import 'package:mypet/pet/pet_rules.dart';
 import 'package:mypet/ui/settings_screen.dart';
 import 'package:mypet/ui/c3/c3_theme.dart';
 import 'package:mypet/services/test_mode.dart';
+import 'package:mypet/services/sfx.dart';
 import 'package:mypet/services/telemetry.dart';
 import 'package:mypet/ui/shape_picker.dart';
 
@@ -90,6 +91,7 @@ void main() {
     PetController controller, {
     double textScale = 1,
     TestMode? testMode,
+    Sfx? effects,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -104,6 +106,7 @@ void main() {
           controller: controller,
           onReset: () async {},
           testMode: testMode,
+          effects: effects,
         ),
       ),
     );
@@ -123,6 +126,7 @@ void main() {
     WidgetTester tester, {
     double textScale = 1,
     AppDatabase Function()? database,
+    Sfx? effects,
   }) async {
     tester.view.physicalSize = const Size(1080, 9000);
     tester.view.devicePixelRatio = 1;
@@ -148,7 +152,12 @@ void main() {
         await db.close();
       });
     });
-    await openSettings(tester, controller, textScale: textScale);
+    await openSettings(
+      tester,
+      controller,
+      textScale: textScale,
+      effects: effects,
+    );
     return controller;
   }
 
@@ -195,6 +204,46 @@ void main() {
     });
     await tester.pump();
   }
+
+  testWidgets('음소거 저장 실패를 알리고 같은 스위치 값으로 다시 저장한다', (tester) async {
+    final effects = Sfx();
+    await mount(tester, effects: effects);
+    await tester.runAsync(effects.init);
+    beforeStorage = (call) async {
+      if (call.method == 'write' &&
+          (call.arguments as Map)['key'] == 'sound_off') {
+        throw PlatformException(code: 'unavailable');
+      }
+    };
+    final sound = find.widgetWithText(SwitchListTile, '소리');
+    await tester.tap(sound);
+    await drain(tester);
+    expect(tester.widget<SwitchListTile>(sound).value, isFalse);
+    final retry = find.text('소리·진동 설정 다시 저장');
+    expect(retry, findsOneWidget);
+    beforeStorage = null;
+    await tester.tap(retry);
+    await drain(tester);
+    expect(retry, findsNothing);
+    final restarted = Sfx();
+    await tester.runAsync(restarted.init);
+    expect(restarted.soundOn, isFalse);
+  });
+
+  testWidgets('이미 열린 설정 화면도 나중에 읽은 음소거 값을 표시한다', (tester) async {
+    final effects = Sfx();
+    await mount(tester, effects: effects);
+    final sound = find.widgetWithText(SwitchListTile, '소리');
+    expect(tester.widget<SwitchListTile>(sound).value, isTrue);
+    values['sound_off'] = 'true';
+    await tester.runAsync(effects.init);
+    await tester.pump();
+    expect(tester.widget<SwitchListTile>(sound).value, isFalse);
+    await tester.tap(sound);
+    await drain(tester);
+    expect(tester.widget<SwitchListTile>(sound).value, isTrue);
+    expect(values['sound_off'], 'false');
+  });
 
   testWidgets('일반 폰 높이에서 빈 AI 입력 안내는 누른 버튼 곁에 바로 보인다', (tester) async {
     await mount(tester);

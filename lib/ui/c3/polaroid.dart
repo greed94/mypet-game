@@ -11,6 +11,7 @@ class Polaroid extends StatelessWidget {
     required this.caption,
     this.captionRight,
     this.captionContent,
+    this.controls,
     this.action,
   });
 
@@ -18,6 +19,7 @@ class Polaroid extends StatelessWidget {
   final String caption;
   final String? captionRight;
   final Widget? captionContent;
+  final Widget? controls;
   final Widget? action;
 
   @override
@@ -53,7 +55,11 @@ class Polaroid extends StatelessWidget {
                 ),
               ),
               SizedBox(
-                height: action == null && captionContent == null ? 32 : 48,
+                height:
+                    captionContent != null ||
+                        (controls == null && action != null)
+                    ? 48
+                    : 32,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(4, 0, 4, 1),
                   child: Row(
@@ -92,7 +98,7 @@ class Polaroid extends StatelessWidget {
                             ),
                           ),
                         ),
-                      if (action != null) ...[
+                      if (action != null && controls == null) ...[
                         const SizedBox(width: 6),
                         action!,
                       ],
@@ -100,6 +106,24 @@ class Polaroid extends StatelessWidget {
                   ),
                 ),
               ),
+              if (controls != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 2),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: controls!,
+                        ),
+                      ),
+                      if (action != null) ...[
+                        const SizedBox(width: 6),
+                        action!,
+                      ],
+                    ],
+                  ),
+                ),
             ],
           ),
         ),

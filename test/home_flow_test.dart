@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flame/game.dart';
@@ -20,6 +21,8 @@ import 'package:mypet/pet/pet_controller.dart';
 import 'package:mypet/pet/pet_rules.dart';
 import 'package:mypet/pet/spots.dart';
 import 'package:mypet/pet/tricks.dart';
+import 'package:mypet/pet/treasure.dart';
+import 'package:mypet/services/sfx.dart';
 import 'package:mypet/services/notifications.dart';
 import 'package:mypet/services/test_mode.dart';
 import 'package:mypet/ui/c3/c3_theme.dart';
@@ -31,6 +34,21 @@ import 'package:mypet/ui/item_icon.dart';
 import 'package:mypet/ui/shape_picker.dart';
 import 'package:mypet/ui/play_tray.dart';
 import 'package:mypet/ui/walk_card.dart';
+
+class _RoomPlayer extends Fake implements AudioPlayer {
+  int starts = 0;
+  bool audible = false;
+  @override
+  Future<void> stop() async {
+    audible = false;
+  }
+
+  @override
+  Future<void> resume() async {
+    starts++;
+    audible = true;
+  }
+}
 
 class _DelayedStepsStorage extends FlutterSecureStorage {
   final started = Completer<void>();
@@ -118,6 +136,7 @@ void main() {
     int paws = 10,
     Duration age = const Duration(days: 5),
     String? pouch,
+    String? quirk,
     String? portraitPath,
     Future<int?> Function()? readStepTotal,
   }) async {
@@ -141,6 +160,7 @@ void main() {
         paws: paws,
         pawMarks: const Value('hidden'),
         treatPouch: Value(pouch),
+        quirk: Value(quirk),
       );
       await db.savePet(pet);
       late _Home result;
@@ -173,6 +193,7 @@ void main() {
     WidgetTester tester,
     _Home home, {
     SpeechToText? speech,
+    Sfx? effects,
     FlutterSecureStorage? stepsStorage,
   }) async {
     await tester.pumpWidget(
@@ -183,6 +204,7 @@ void main() {
           db: home.db,
           onReset: () async {},
           speech: speech,
+          effects: effects,
           stepsStorage: stepsStorage,
         ),
       ),
@@ -250,6 +272,156 @@ void main() {
     expect(find.text('밥 주기').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  Future<void> closeSpeechHome(WidgetTester tester) async {
+    await tester.runAsync(() => tester.pumpWidget(const SizedBox()));
+    await tester.pump();
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+  }
+
+  testWidgets('밥 앞에 앉은 뒤 설정을 열면 뒤에서 다음 식사 소리가 나지 않는다', (tester) async {
+    final home = await make(tester, quirk: 'sitBeforeEat');
+    final player = _RoomPlayer();
+    final effects = Sfx(
+      loadPlayer: (name) async => name == 'crunch' ? player : null,
+    );
+    await tester.runAsync(effects.init);
+    await mount(tester, home, effects: effects);
+    await tester.runAsync(() => tester.tap(find.text('밥 주기').hitTestable()));
+    await tester.pump();
+    expect(home.c.step.behavior, Behavior.sit);
+    await tester.runAsync(() async {
+      tester.semantics.tap(find.semantics.byLabel('설정'));
+      await pumpEventQueue();
+    });
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.runAsync(() async {
+      home.c.tick(1);
+      home.c.tick(.3);
+      await pumpEventQueue();
+    });
+    for (var i = 0; i < 5; i++) {
+      await tester.pump();
+      await tester.runAsync(() => pumpEventQueue());
+    }
+    expect(home.c.step.behavior, Behavior.eat);
+    expect(player.starts, 0);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(Duration.zero);
+  });
+
+  for (final next in ['일기', '설정', '마이크']) {
+    testWidgets('쓰다듬기 직후 $next 전환은 이전 방의 소리를 멈춘다', (tester) async {
+      final home = await make(tester);
+      final player = _RoomPlayer();
+      final effects = Sfx(loadPlayer: (_) async => player);
+      await tester.runAsync(effects.init);
+      final mic = next == '마이크';
+      final speech = SpeechToText.withMethodChannel();
+      const audio = MethodChannel('mypet/audio');
+      final messenger = tester.binding.defaultBinaryMessenger;
+      await mount(tester, home, effects: effects, speech: speech);
+      final gate = Completer<void>();
+      var queries = 0;
+      messenger.setMockMethodCallHandler(audio, (_) async {
+        queries++;
+        if (!mic) await gate.future;
+        return 2;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(audio, null));
+      final label = home.c.bubble == null ? '콩이 쓰다듬기' : '콩이의 속마음';
+      await tester.runAsync(() async {
+        tester.semantics.tap(find.semantics.byLabel(label));
+        await pumpEventQueue();
+      });
+      await tester.pump();
+      for (var i = 0; i < 6; i++) {
+        await tester.runAsync(() => pumpEventQueue(times: 4));
+        await tester.pump();
+      }
+      expect(queries, greaterThan(0));
+      if (mic) {
+        expect(
+          player.audible,
+          isTrue,
+          reason: 'ringer=$queries starts=${player.starts}',
+        );
+        const speechChannel = MethodChannel(
+          'plugin.csdcorp.com/speech_to_text',
+        );
+        messenger.setMockMethodCallHandler(speechChannel, (_) async => true);
+        addTearDown(
+          () => messenger.setMockMethodCallHandler(speechChannel, null),
+        );
+        final begin =
+            tester.widget<MemoInput>(find.byType(MemoInput)).onMic
+                as Future<void> Function();
+        await tester.runAsync(begin);
+      } else {
+        expect(player.starts, 0);
+        await tester.runAsync(() async {
+          tester.semantics.tap(find.semantics.byLabel(next));
+          await pumpEventQueue();
+        });
+        await tester.pump();
+        gate.complete();
+      }
+      await tester.pump();
+      expect(player.audible, isFalse);
+      if (!mic) expect(player.starts, 0);
+      await closeSpeechHome(tester);
+      await tester.pump(Duration.zero);
+    });
+  }
+
+  for (final size in [const Size(392, 820), const Size(320, 420)]) {
+    testWidgets('오른쪽 바닥의 강아지와 창틀 버튼을 각각 누른다 ${size.width}', (tester) async {
+      final home = await make(tester);
+      await tester.runAsync(() async {
+        await home.db.addCarried(items.first.id, FindSource.window, home.now);
+        home.c.carried = await home.db.allCarried();
+        home.c.petX = .90;
+        home.c.snapGen++;
+      });
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      await mount(tester, home);
+      home.game.update(0);
+      await tester.pump();
+      final room = find.byType(GameWidget<PetGame>);
+      final button = find.ancestor(
+        of: find.text('창틀 보기'),
+        matching: find.byWidgetPredicate((w) => w is TextButton),
+      );
+      final area = tester.getRect(room), control = tester.getRect(button);
+      expect(area.height, greaterThan(48));
+      expect(control.top, greaterThanOrEqualTo(area.bottom));
+      final before = home.c.careScore;
+      final body =
+          area.topLeft +
+          Offset(
+            home.game.floorX(home.c.petX),
+            home.game.petBaseline - 12 * home.game.pixelScale,
+          );
+      await tester.runAsync(() => tester.tapAt(body));
+      await tester.pump();
+      expect(home.c.careScore, greaterThan(before));
+      expect(home.c.carried, hasLength(1));
+      await Scrollable.ensureVisible(tester.element(button));
+      await tester.pump();
+      await tester.runAsync(() => tester.tap(button.hitTestable()));
+      for (var i = 0; i < 10; i++) {
+        await tester.runAsync(() => pumpEventQueue());
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(home.c.carried, isEmpty);
+      expect(await tester.runAsync(home.db.allCarried), isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(Duration.zero);
+    });
+  }
 
   testWidgets('Tab으로 강아지에게 가서 Enter와 Space로 쓰다듬는다', (tester) async {
     final home = await make(tester);
@@ -1146,13 +1318,6 @@ void main() {
     ],
     'resultType': finalResult ? 2 : 0,
   });
-
-  Future<void> closeSpeechHome(WidgetTester tester) async {
-    await tester.runAsync(() => tester.pumpWidget(const SizedBox()));
-    await tester.pump();
-    await tester.runAsync(() => pumpEventQueue());
-    await tester.pump();
-  }
 
   testWidgets('음성 초기화를 기다리다 홈을 닫으면 늦은 허용으로 녹음을 시작하지 않는다', (tester) async {
     final home = await make(tester);

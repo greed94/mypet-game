@@ -2,6 +2,7 @@
 // flutter test tools/scene_preview/first_day_showcase_test.dart
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:drift/native.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
@@ -11,11 +12,24 @@ import 'package:mypet/data/database.dart';
 import 'package:mypet/game/pet_game.dart';
 import 'package:mypet/main.dart';
 import 'package:mypet/pet/pet_controller.dart';
+import 'package:mypet/services/sfx.dart';
 import 'package:mypet/services/test_mode.dart';
 import 'package:mypet/ui/home_screen.dart';
 
 import 'capture_preview.dart';
 import 'preview_fonts.dart';
+
+// 앱이 실제로 재생을 시작한 프레임에 그 소리 파일을 얹는다.
+class _RecordingPlayer extends Fake implements AudioPlayer {
+  _RecordingPlayer(this.onStart);
+  final void Function() onStart;
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> resume() async => onStart();
+}
 
 void main() {
   setUpAll(loadPreviewFonts);
@@ -24,7 +38,26 @@ void main() {
     const permission = MethodChannel(
       'flutter.baseflow.com/permissions/methods',
     );
+    const audio = MethodChannel('mypet/audio');
+    const fps = 12;
+    var index = 0;
+    int? recordingFrame;
+    final sounds = <(String, int)>[];
+    final effects = Sfx(
+      loadPlayer: (name) async => _RecordingPlayer(() {
+        final frame = recordingFrame;
+        if (frame != null) sounds.add((name, frame));
+      }),
+    );
     final messenger = tester.binding.defaultBinaryMessenger;
+    const preferences = MethodChannel(
+      'plugins.it_nomads.com/flutter_secure_storage',
+    );
+    messenger.setMockMethodCallHandler(preferences, (_) async => null);
+    addTearDown(() => messenger.setMockMethodCallHandler(preferences, null));
+    messenger.setMockMethodCallHandler(audio, (_) async => 2);
+    addTearDown(() => messenger.setMockMethodCallHandler(audio, null));
+    await tester.runAsync(effects.init);
     messenger.setMockMethodCallHandler(permission, (_) async => 0);
     addTearDown(() => messenger.setMockMethodCallHandler(permission, null));
     tester.view.physicalSize = const Size(392, 820);
@@ -55,6 +88,7 @@ void main() {
           systemPrompt: '',
           diaryPrompt: '',
           ai: null,
+          effects: effects,
           clock: () => now,
           testMode: TestMode(File('${output.path}/synthetic-mode.json')),
           docs: output.path,
@@ -62,23 +96,29 @@ void main() {
       ),
     );
 
-    Future<void> drain() async {
+    Future<void> drain({bool advance = true}) async {
       for (var i = 0; i < 12; i++) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 15)),
         );
-        await tester.pump(const Duration(milliseconds: 16));
+        await tester.pump(
+          advance ? const Duration(milliseconds: 16) : Duration.zero,
+        );
       }
     }
 
-    var index = 0;
     final chapters = <(String, int, int)>[];
     Future<void> record(String caption, int count) async {
       final start = index;
       for (var i = 0; i < count; i++) {
-        const frame = Duration(milliseconds: 83);
-        now = now.add(frame);
-        await tester.pump(frame);
+        recordingFrame = index;
+        // 첫 화면은 터치 순간이다. 이후에는 영상의 12fps와 같은 간격으로 시계를 보낸다.
+        final micros = i == 0
+            ? 0
+            : index * 1000000 ~/ fps - (index - 1) * 1000000 ~/ fps;
+        final elapsed = Duration(microseconds: micros);
+        now = now.add(elapsed);
+        await tester.pump(elapsed);
         final number = index.toString().padLeft(4, '0');
         await capturePreview(
           tester,
@@ -88,6 +128,7 @@ void main() {
         index++;
       }
       expect(tester.takeException(), isNull);
+      recordingFrame = null;
       chapters.add((caption, start, index - 1));
     }
 
@@ -101,13 +142,15 @@ void main() {
     await record('보리와 처음 만나는 밤', 22);
     await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
     await tester.pumpAndSettle();
+    recordingFrame = index;
     await tester.runAsync(() => tester.tap(find.text('건너뛰고 시작')));
-    await drain();
+    await drain(advance: false);
     final c = tester.widget<HomeScreen>(find.byType(HomeScreen)).controller;
     controller = c;
     // 클라우드에 합성 입력을 보내지 않고 제품의 로컬 반응과 일기 경로를 보여 준다.
     c.brain = null;
     await record('첫 만남  ·  문 앞에서 냄새를 맡고 다가와요', 53);
+    recordingFrame = index;
     await tester.tap(find.text('밥 주기'));
     await record('첫 식사  ·  보리가 밥을 먹어요', 45);
     await tester.runAsync(() => c.settled);
@@ -126,6 +169,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
     await tester.tap(find.text('집').hitTestable());
     await tester.pump();
+    recordingFrame = index;
     await tester.runAsync(() async {
       c.sleepApp();
       await c.settled;
@@ -136,7 +180,7 @@ void main() {
       expect(entry.content, contains('처음으로 주인 냄새를 맡았다'));
       expect(entry.content, contains('밥을 줬다'));
     });
-    await drain();
+    await drain(advance: false);
     await record('다음 날 아침  ·  테스트 시계를 앞당겼어요', 16);
     expect(find.textContaining('2일째 함께'), findsOneWidget);
     final room = find.byType(GameWidget<PetGame>);
@@ -144,8 +188,9 @@ void main() {
     final dog =
         tester.getTopLeft(room) +
         Offset(game.floorX(c.petX), game.petBaseline - 12 * game.pixelScale);
+    recordingFrame = index;
     await tester.tapAt(dog);
-    await drain();
+    await drain(advance: false);
     expect(c.bubble, '킁… 어제 밥 주던 손 냄새다!');
     expect(
       await tester.runAsync(() => db.eventsOfKind('first_recognition')),
@@ -234,17 +279,42 @@ void main() {
           "x=(w-tw)/2:y=h-48:enable='between(n,$start,$end)'",
         );
       }
+      final cues = sounds.where((sound) => sound.$2 < index).toList();
+      expect(cues.map((event) => event.$1), containsAll(['sniff', 'crunch']));
+      final audioFilters = <String>[];
+      for (final (i, event) in cues.indexed) {
+        final delayMs = (event.$2 * 1000 / fps).round();
+        audioFilters.add('[${i + 1}:a]adelay=$delayMs:all=1[a$i]');
+      }
+      final inputs = [for (var i = 0; i < cues.length; i++) '[a$i]'].join();
+      final seconds = (index / fps).toStringAsFixed(3);
+      audioFilters.add(
+        '${inputs}amix=inputs=${cues.length}:normalize=0,volume=0.8,apad,atrim=duration=$seconds[sound]',
+      );
+      await File('${output.path}/first-day-sound.tsv').writeAsString(
+        [
+          'frame\tasset',
+          for (final (name, frame) in cues) '$frame\t$name',
+        ].join('\n'),
+      );
       final result = await Process.run('ffmpeg', [
         '-hide_banner',
         '-loglevel',
         'error',
         '-y',
         '-framerate',
-        '12',
+        '$fps',
         '-i',
         '${frames.path}/frame%04d.png',
-        '-frames:v',
-        '$index',
+        for (final (name, _) in cues) ...['-i', 'assets/sfx/$name.wav'],
+        '-filter_complex',
+        audioFilters.join(';'),
+        '-map',
+        '0:v:0',
+        '-map',
+        '[sound]',
+        '-t',
+        seconds,
         '-vf',
         filters.join(','),
         '-c:v',
@@ -253,6 +323,12 @@ void main() {
         '1',
         '-crf',
         '18',
+        '-c:a',
+        'aac',
+        '-b:a',
+        '96k',
+        '-ar',
+        '48000',
         '-pix_fmt',
         'yuv420p',
         '-movflags',

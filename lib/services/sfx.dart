@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -55,17 +56,25 @@ Future<void> Function()? hapticFor(Cue cue) => switch (cue) {
   Cue.whine || Cue.sigh || Cue.crunch => null,
 };
 
+final appSfx = Sfx();
+
 /// 효과음과 진동. 규칙 코드는 Cue만 알리고 무엇을 틀지는 여기서 정한다.
 /// 소리는 없어도 되는 장식이라 어떤 실패도 삼킨다.
-class Sfx {
-  Sfx._();
+class Sfx extends ChangeNotifier {
+  Sfx({
+    FlutterSecureStorage storage = const FlutterSecureStorage(),
+    Future<AudioPlayer?> Function(String name)? loadPlayer,
+  }) : _storage = storage,
+       _loadPlayer = loadPlayer ?? _loadNativePlayer;
 
-  static const _storage = FlutterSecureStorage();
+  final FlutterSecureStorage _storage;
+  final Future<AudioPlayer?> Function(String name) _loadPlayer;
   static const _soundOffKey = 'sound_off';
   static const _hapticOffKey = 'haptic_off';
   static const _audio = MethodChannel('mypet/audio');
   static const _ringerNormal = 2;
   static const _repeatGap = Duration(milliseconds: 80);
+  static const _cueLifetime = Duration(milliseconds: 400);
 
   // 다른 앱 음악을 끊지 않게 오디오 포커스를 요청하지 않고 섞는다. 음량은 미디어 음량을 따른다.
   // iOS ambient는 무음 스위치를 스스로 따르고 다른 소리와 섞인다.
@@ -78,89 +87,167 @@ class Sfx {
     iOS: AudioContextIOS(category: AVAudioSessionCategory.ambient),
   );
 
-  static bool _soundOn = true;
-  static bool _hapticOn = true;
-  static bool _ready = false;
-  static Future<void>? _init;
-  static final _players = <String, AudioPlayer>{};
-  static final _clock = Stopwatch()..start();
-  static final _lastPlayed = <String, Duration>{};
+  bool _soundOn = true;
+  bool _hapticOn = true;
+  bool _ready = false;
+  int _soundRevision = 0;
+  int _hapticRevision = 0;
+  final _failedWrites = <String>{};
+  final _settingsReady = Completer<void>();
+  Future<void> _writes = Future<void>.value();
+  Future<void>? _init;
+  final _loading = <String, Future<_EffectVoice?>>{};
+  final _voices = <String, _EffectVoice>{};
+  final _clock = Stopwatch()..start();
+  final _lastPlayed = <String, Duration>{};
 
-  static bool get soundOn => _soundOn;
-  static bool get hapticOn => _hapticOn;
+  bool get soundOn => _soundOn;
+  bool get hapticOn => _hapticOn;
 
   /// 설정을 읽고 소리를 미리 올려 둔다. 여러 번 불러도 한 번만 한다.
-  static Future<void> init() => _init ??= _start();
+  Future<void> init() => _init ??= _start();
 
-  static Future<void> _start() async {
-    try {
-      _soundOn = await _storage.read(key: _soundOffKey) != 'true';
-      _hapticOn = await _storage.read(key: _hapticOffKey) != 'true';
-    } on Exception {
-      // 저장소가 깨져도 기본값(둘 다 켜짐)으로 간다.
+  Future<void> _start() async {
+    final savedSound = await _storedOn(_soundOffKey);
+    final savedHaptic = await _storedOn(_hapticOffKey);
+    // 설정이 열리는 동안 도착한 예전 읽기로 사용자가 누른 값을 되돌리지 않는다.
+    if (_soundRevision == 0) _soundOn = savedSound;
+    if (_hapticRevision == 0) _hapticOn = savedHaptic;
+    for (final name in sfxNames) {
+      _loading[name] = _prepare(name);
     }
     _ready = true;
-    // PC에서 도는 테스트에는 오디오 플러그인이 없다.
-    if (!Platform.isAndroid && !Platform.isIOS) return;
-    await Future.wait(sfxNames.map(_load));
+    _settingsReady.complete();
+    notifyListeners();
+    await Future.wait(_loading.values);
   }
 
-  static Future<void> _load(String name) async {
+  Future<_EffectVoice?> _prepare(String name) async {
+    final player = await _loadPlayer(name);
+    if (player == null) return null;
+    return _voices[name] = _EffectVoice(player);
+  }
+
+  Future<bool> _storedOn(String key) async {
+    try {
+      return await _storage.read(key: key) != 'true';
+    } on Exception {
+      return true;
+    }
+  }
+
+  static Future<AudioPlayer?> _loadNativePlayer(String name) async {
+    if (!Platform.isAndroid && !Platform.isIOS) return null;
     try {
       final player = AudioPlayer()..positionUpdater = null;
       await player.setAudioContext(_context);
       await player.setPlayerMode(PlayerMode.lowLatency);
       await player.setReleaseMode(ReleaseMode.stop);
       await player.setSource(AssetSource('sfx/$name.wav'));
-      _players[name] = player;
+      return player;
     } catch (_) {
       // 이 소리만 빠진다.
+      return null;
     }
   }
 
-  /// 바로 반영하고 저장은 뒤따른다.
-  static Future<void> setSoundOn(bool on) async {
+  /// 스위치는 바로 바뀌고, 같은 실행의 저장은 누른 순서를 따른다.
+  Future<void> setSoundOn(bool on) {
+    final revision = ++_soundRevision;
     _soundOn = on;
-    await _save(_soundOffKey, !on);
+    if (!on) silence();
+    return _changed(_soundOffKey, on, () => revision == _soundRevision);
   }
 
-  static Future<void> setHapticOn(bool on) async {
+  Future<void> setHapticOn(bool on) {
+    final revision = ++_hapticRevision;
     _hapticOn = on;
-    await _save(_hapticOffKey, !on);
+    return _changed(_hapticOffKey, on, () => revision == _hapticRevision);
   }
 
-  static Future<void> _save(String key, bool off) async {
-    try {
-      await _storage.write(key: key, value: '$off');
-    } on Exception {
-      // 저장이 안 되면 이번 실행 동안만 적용된다.
+  void silence() {
+    for (final voice in _voices.values) {
+      voice.silence();
     }
   }
 
-  /// 소리와 진동을 함께 낸다. 폰이 무음·진동 모드면 진동만.
-  static void play(Cue cue, {String shape = 'papillon', bool puppy = false}) {
-    if (!_ready || (!_soundOn && !_hapticOn)) return;
+  bool get needsSave => _failedWrites.isNotEmpty;
+
+  Future<void> retrySave() async {
+    final failed = Set.of(_failedWrites);
+    await Future.wait([
+      if (failed.contains(_soundOffKey)) setSoundOn(_soundOn),
+      if (failed.contains(_hapticOffKey)) setHapticOn(_hapticOn),
+    ]);
+  }
+
+  Future<void> _changed(String key, bool on, bool Function() latest) {
+    _failedWrites.remove(key);
+    final saved = _writes = _writes.then((_) async {
+      try {
+        await _storage.write(key: key, value: '${!on}');
+      } on Exception {
+        if (latest()) {
+          _failedWrites.add(key);
+          notifyListeners();
+        }
+      }
+    });
+    notifyListeners();
+    return saved;
+  }
+
+  /// 첫 반김은 기기 설정이나 해당 파일이 잠시 늦어도 행동에 맞춰 한 번만 낸다.
+  void play(
+    Cue cue, {
+    String shape = 'papillon',
+    bool puppy = false,
+    bool Function()? stillHere,
+  }) {
+    if (_init == null || (_ready && !_soundOn && !_hapticOn)) return;
     final name = sfxFor(cue, shape: shape, puppy: puppy);
     final now = _clock.elapsed;
     final last = _lastPlayed[name];
-    // 여러 규칙이 한 프레임에 같은 신호를 내도 소리가 겹쳐 커지지 않게 한다.
     if (last != null && now - last < _repeatGap) return;
     _lastPlayed[name] = now;
-    final buzz = hapticFor(cue);
-    if (_hapticOn && buzz != null) buzz().ignore();
-    if (_soundOn) unawaited(_playSound(name));
+    unawaited(
+      _playCue(cue, name, now, _soundRevision, _hapticRevision, stillHere),
+    );
   }
 
-  static Future<void> _playSound(String name) async {
-    if (!await _ringerAllowsSound()) return;
-    final player = _players[name];
-    if (player == null) return;
-    try {
-      // 저지연 모드는 끝났다는 신호가 없어서, 멈춰 두지 않으면 다시 틀어지지 않는다.
-      await player.stop();
-      await player.resume();
-    } catch (_) {
-      // 소리가 안 나도 펫은 움직인다.
+  Future<void> _playCue(
+    Cue cue,
+    String name,
+    Duration at,
+    int soundRevision,
+    int hapticRevision,
+    bool Function()? stillHere,
+  ) async {
+    bool fresh() =>
+        _clock.elapsed - at <= _cueLifetime && (stillHere?.call() ?? true);
+    bool audible() =>
+        _soundOn &&
+        soundRevision == _soundRevision &&
+        (stillHere?.call() ?? true);
+    final initialMode = !_ready && _soundOn ? _ringerAllowsSound() : null;
+    if (!_ready) {
+      await _settingsReady.future.timeout(_cueLifetime, onTimeout: () {});
+    }
+    if (!_ready || !fresh()) return;
+    if (_hapticOn && hapticRevision == _hapticRevision) {
+      hapticFor(cue)?.call().ignore();
+    }
+    if (!audible()) return;
+    if (!await (initialMode ?? _ringerAllowsSound()) ||
+        !audible() ||
+        !fresh()) {
+      return;
+    }
+    final voice =
+        _voices[name] ??
+        await _loading[name]?.timeout(_cueLifetime, onTimeout: () => null);
+    if (voice != null && fresh() && audible()) {
+      voice.play(fresh: fresh, audible: audible, ringer: _ringerAllowsSound);
     }
   }
 
@@ -172,5 +259,42 @@ class Sfx {
       // 물어볼 수 없으면(iOS, 테스트) 소리를 낸다.
       return true;
     }
+  }
+}
+
+/// 저지연 플레이어는 같은 소리의 끝을 알리지 않는다. 한 파일의 정지·시작 순서를 보장한다.
+class _EffectVoice {
+  _EffectVoice(this.player);
+  final AudioPlayer player;
+  Future<void> _pending = Future<void>.value();
+  bool _started = false;
+
+  void play({
+    required bool Function() fresh,
+    required bool Function() audible,
+    required Future<bool> Function() ringer,
+  }) {
+    _pending = _pending.then((_) async {
+      try {
+        if (!audible() || !fresh()) return;
+        await player.stop();
+        if (!audible() || !fresh()) return;
+        if (!await ringer() || !audible() || !fresh()) return;
+        _started = true;
+        await player.resume();
+        // 네이티브 시작 응답보다 사용자의 끄기가 먼저 끝날 수 있다.
+        if (!audible()) await player.stop();
+      } catch (_) {
+        // 한 소리의 실패는 다음 행동 재생을 막지 않는다.
+      }
+    });
+  }
+
+  void silence() {
+    if (!_started) return;
+    _started = false;
+    // 이미 나는 소리는 즉시 멈추고, 다음 시작은 이 정지와 이전 시작의 완료 뒤에 보낸다.
+    final stopping = player.stop().then<void>((_) {}, onError: (Object _) {});
+    _pending = Future.wait([_pending, stopping]).then((_) {});
   }
 }

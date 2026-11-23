@@ -37,7 +37,7 @@ Future<void> main() async {
 }
 
 Future<Widget> _loadApp() async {
-  unawaited(Sfx.init());
+  unawaited(appSfx.init());
   // 디버그 전용: 몇 시간 비운 뒤 돌아온 상황(DEBUG_REWIND_HOURS)과
   // 밤에 낮 장면(DEBUG_HOUR)을 기다리지 않고 바로 확인하기 위한 옵션. 실제 펫 기록과 섞이지 않게 별도 DB를 쓴다.
   const rewindHours = int.fromEnvironment('DEBUG_REWIND_HOURS');
@@ -141,6 +141,7 @@ class MypetApp extends StatefulWidget {
     required this.clock,
     required this.testMode,
     required this.docs,
+    this.effects,
   });
 
   final AppDatabase db;
@@ -151,6 +152,7 @@ class MypetApp extends StatefulWidget {
   final AiConfig? ai;
   final DateTime Function() clock;
   final TestMode testMode;
+  final Sfx? effects;
 
   /// 앱 문서 폴더. DB 파일이 여기 있다.
   final String docs;
@@ -377,6 +379,7 @@ class _MypetAppState extends State<MypetApp> {
             : HomeScreen(
                 key: ValueKey(c),
                 controller: c,
+                effects: widget.effects,
                 db: _db,
                 onReset: _reset,
                 testMode: testModeAvailable ? widget.testMode : null,

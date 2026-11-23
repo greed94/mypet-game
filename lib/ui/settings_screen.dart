@@ -31,9 +31,11 @@ class SettingsScreen extends StatefulWidget {
     required this.onReset,
     this.testMode,
     this.onTestMode,
+    this.effects,
   });
 
   final PetController controller;
+  final Sfx? effects;
   final Future<void> Function() onReset;
 
   /// 테스트 빌드에서만 있다.
@@ -473,6 +475,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final effects = widget.effects ?? appSfx;
     final b = widget.controller.brain;
     final name = widget.controller.pet.name;
     return Scaffold(
@@ -595,25 +598,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text('소리', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
             Text(keepWords('무음·진동 모드에서는 소리 없이 진동만 해요.')),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('소리'),
-              value: Sfx.soundOn,
-              onChanged: (on) {
-                unawaited(Sfx.setSoundOn(on));
-                Telemetry.track('sound', {'on': on});
-                setState(() {});
-              },
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('진동'),
-              value: Sfx.hapticOn,
-              onChanged: (on) {
-                unawaited(Sfx.setHapticOn(on));
-                Telemetry.track('haptic', {'on': on});
-                setState(() {});
-              },
+            ListenableBuilder(
+              listenable: effects,
+              builder: (context, _) => Column(
+                children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('소리'),
+                    value: effects.soundOn,
+                    onChanged: (on) {
+                      unawaited(effects.setSoundOn(on));
+                      Telemetry.track('sound', {'on': on});
+                    },
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('진동'),
+                    value: effects.hapticOn,
+                    onChanged: (on) {
+                      unawaited(effects.setHapticOn(on));
+                      Telemetry.track('haptic', {'on': on});
+                    },
+                  ),
+                  if (effects.needsSave) ...[
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        keepWords(
+                          '이번에는 설정을 저장하지 못했어요. 지금 선택한 소리와 진동은 앱을 닫을 때까지 적용돼요.',
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => unawaited(effects.retrySave()),
+                      child: const Text('소리·진동 설정 다시 저장'),
+                    ),
+                  ],
+                ],
+              ),
             ),
             const Divider(height: 32),
             Text('알림', style: Theme.of(context).textTheme.titleSmall),

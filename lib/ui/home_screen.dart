@@ -68,11 +68,13 @@ class HomeScreen extends StatefulWidget {
     this.onTestMode,
     this.onJump,
     this.speech,
+    this.effects,
     this.stepsStorage,
   });
 
   final PetController controller;
   final AppDatabase db;
+  final Sfx? effects;
   final Future<void> Function() onReset;
 
   /// 테스트 빌드에서만 있다. 켜져 있으면 위에 띠가 뜨고 시간을 보낼 수 있다.
@@ -105,6 +107,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _listening = false;
   bool _micBusy = false;
   int _micSession = 0;
+  int _feedbackSession = 0;
+  bool _settingsOpen = false;
+  bool _appPaused = false;
 
   // SpeechToText는 화면이 바뀌어도 같은 인스턴스이므로 이전 취소가 끝난 뒤 시작한다.
   static Future<void> _speechOperations = Future<void>.value();
@@ -115,6 +120,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool get _acceptsInput =>
       !widget.controller.isResetting && !widget.controller.isDisposed;
+
+  bool get _canHearRoom =>
+      !_appPaused &&
+      !_settingsOpen &&
+      !_listening &&
+      !_micBusy &&
+      _tab == 0 &&
+      _acceptsInput;
 
   static const _storage = FlutterSecureStorage();
   static const _stepsAskedKey = 'steps_asked';
@@ -134,16 +147,35 @@ class _HomeScreenState extends State<HomeScreen> {
     // resumed까지 기다리면 분할 화면처럼 포커스 없이 돌아온 경우 inactive 상태에서 게임 루프가 먼저 돌아
     // 비운 시간을 덮어쓴다. paused→hidden 시점에 계산해야 루프가 다시 돌기 전에 끝난다.
     _lifecycle = AppLifecycleListener(
-      onPause: widget.controller.sleepApp,
-      onRestart: widget.controller.wake,
+      onPause: () {
+        _appPaused = true;
+        _leaveRoomSound();
+        widget.controller.sleepApp();
+      },
+      onRestart: () {
+        _appPaused = false;
+        widget.controller.wake();
+      },
       onResume: _offerPocketSteps,
     );
     _seenDiary = widget.controller.diaryVersion;
     // 말을 듣는 동안 짖으면 음성 인식이 그 소리까지 받아 적는다.
     _cueSub = widget.controller.cues.listen((cue) {
-      if (_listening) return;
+      if (!mounted || !_canHearRoom) return;
+      final session = _feedbackSession;
+      final route = ModalRoute.of(context);
+      final inFront = route?.isCurrent;
       final pet = widget.controller.pet;
-      Sfx.play(cue, shape: pet.shape, puppy: pet.stage == PetStage.puppy);
+      (widget.effects ?? appSfx).play(
+        cue,
+        shape: pet.shape,
+        puppy: pet.stage == PetStage.puppy,
+        stillHere: () =>
+            mounted &&
+            _canHearRoom &&
+            session == _feedbackSession &&
+            route?.isCurrent == inFront,
+      );
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showFromNotification();
@@ -157,6 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _releaseStepsDialog();
     Notifications.opened.removeListener(_showFromNotification);
     _lifecycle.dispose();
+    _leaveRoomSound();
     _cueSub?.cancel();
     if (_micSession > 0) {
       _micSession++;
@@ -189,7 +222,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _selectTab(to == 'diary' ? 1 : 0);
   }
 
+  void _leaveRoomSound() {
+    _feedbackSession++;
+    (widget.effects ?? appSfx).silence();
+  }
+
   void _selectTab(int index) {
+    if (index != _tab) _leaveRoomSound();
     setState(() => _tab = index);
     widget.controller.roomHidden = index != 0;
     if (index == 0) _offerPocketSteps();
@@ -333,6 +372,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _toggleMic() async {
     if (!mounted || _micBusy) return;
     _micBusy = true;
+    _leaveRoomSound();
     final stopping = _listening;
     final session = stopping ? _micSession : ++_micSession;
     bool active() => mounted && session == _micSession;
@@ -676,6 +716,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openSettings() async {
+    if (_settingsOpen) return;
+    _settingsOpen = true;
+    _leaveRoomSound();
     final c = widget.controller;
     c.uiBusy = true;
     try {
@@ -684,6 +727,7 @@ class _HomeScreenState extends State<HomeScreen> {
         MaterialPageRoute<void>(
           builder: (_) => SettingsScreen(
             controller: c,
+            effects: widget.effects,
             onReset: widget.onReset,
             testMode: widget.testMode,
             onTestMode: widget.onTestMode,
@@ -691,6 +735,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     } finally {
+      _settingsOpen = false;
       c.uiBusy = false;
     }
   }
@@ -826,12 +871,21 @@ class _HomeScreenState extends State<HomeScreen> {
           showActions: !compact,
         );
         // 화면 분할·시스템 여백이 큰 창에서도 방이 사라지지 않게 아래 입력줄까지 스크롤한다.
-        final minHeight = typing ? 270.0 : 380.0;
-        return SingleChildScrollView(
-          child: SizedBox(
-            height: box.maxHeight < minHeight ? minHeight : box.maxHeight,
-            child: room,
-          ),
+        return ListenableBuilder(
+          listenable: c,
+          child: room,
+          builder: (context, child) {
+            final controlsHeight = _availableRoomActions(c).isEmpty
+                ? 0.0
+                : 48.0;
+            final minHeight = (typing ? 270.0 : 380.0) + controlsHeight;
+            return SingleChildScrollView(
+              child: SizedBox(
+                height: box.maxHeight < minHeight ? minHeight : box.maxHeight,
+                child: child,
+              ),
+            );
+          },
         );
       },
     );
@@ -867,6 +921,7 @@ class _HomeScreenState extends State<HomeScreen> {
               listenable: c,
               builder: (context, child) => Polaroid(
                 caption: _caption(c),
+                controls: _roomActions(c),
                 captionRight: showActions ? _captionRight(c) : null,
                 captionContent: !showActions && c.bubble != null
                     ? _compactThought(c, c.bubble!, c.bubbleFromAi)
@@ -934,10 +989,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     builder: (context, _) => Stack(
                       fit: StackFit.expand,
                       children: [
-                        _palm(c, compact: !showActions),
-                        _padButton(c, compact: !showActions),
                         _homeCamButton(c, compact: !showActions),
-                        _recitalButton(c, compact: !showActions),
                         _PawToast(controller: c),
                       ],
                     ),
@@ -1014,68 +1066,49 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// 쉬가 마려워 킁킁대는 8초 동안만 보인다. 누르면 패드로 데려간다.
-  Widget _padButton(PetController c, {required bool compact}) {
-    if (!c.pottyUrge || c.walking || c.out) return const SizedBox();
-    return Positioned(
-      left: 4,
-      bottom: 4,
-      child: StickerButton(
-        cut: 'palm',
-        icon: 'paw_ink',
-        label: '패드로',
-        compact: compact,
-        width: compact ? 80 : 104,
-        tilt: -3,
-        highlighted: true,
-        onTap: c.goToPad,
-      ),
-    );
+  /// 방 바닥은 어디서든 개를 만질 수 있게 두고, 그때 할 수 있는 일은 사진 테두리에 모은다.
+  List<(String, String, VoidCallback)> _availableRoomActions(PetController c) {
+    final here = !c.walking && !c.out;
+    final held = c.presenting;
+    return [
+      if (here && !c.replaying && held != null)
+        (
+          held.source == FindSource.window ? '창틀 보기' : '손 내밀기',
+          'palm',
+          _receive,
+        ),
+      if (here && c.pottyUrge) ('패드로', 'paw_ink', c.goToPad),
+      if (c.recitalReady) ('발표회', 'sparkle', c.startRecital),
+    ];
   }
 
-  /// 금요일 유치원 발표회. 구경하러 갔을 때만 뜬다(맡겨 둔 날엔 없다).
-  Widget _recitalButton(PetController c, {required bool compact}) {
-    if (!c.recitalReady) return const SizedBox();
-    return Positioned(
-      right: 4,
-      bottom: 4,
-      child: StickerButton(
-        cut: 'palm',
-        icon: 'sparkle',
-        label: '발표회',
-        compact: compact,
-        width: compact ? 80 : 104,
-        tilt: 3,
-        highlighted: true,
-        onTap: c.startRecital,
-      ),
+  Widget? _roomActions(PetController c) {
+    final actions = _availableRoomActions(c);
+    if (actions.isEmpty) return null;
+    return Wrap(
+      alignment: WrapAlignment.start,
+      spacing: 6,
+      children: [
+        for (final (label, icon, action) in actions)
+          TextButton.icon(
+            onPressed: action,
+            icon: PixelIcon(icon),
+            label: Text(label),
+            style: TextButton.styleFrom(
+              foregroundColor: C3Colors.ink,
+              backgroundColor: C3Colors.tapeYellow,
+              minimumSize: const Size(48, 32),
+              tapTargetSize: MaterialTapTargetSize.padded,
+              textStyle: C3Text.label.copyWith(fontSize: 14),
+            ),
+          ),
+      ],
     );
   }
 
   /// 손 베개를 아직 안 써 본 사람에게 말 걸기 칸에서 가끔 알려 준다(친해진 뒤, 한 시간 중 10분).
   bool _handHint(PetController c) =>
       c.intimacy != Intimacy.stranger && !c.triedHand && c.now().minute < 10;
-
-  Widget _palm(PetController c, {required bool compact}) {
-    final held = c.presenting;
-    if (held == null || c.walking || c.out || c.replaying) {
-      return const SizedBox();
-    }
-    return Positioned(
-      right: 4,
-      bottom: 4,
-      child: StickerButton(
-        cut: 'palm',
-        icon: 'palm',
-        label: held.source == FindSource.window ? '창틀 보기' : '손 내밀기',
-        compact: compact,
-        width: compact ? 82 : 104,
-        tilt: 3,
-        highlighted: true,
-        onTap: _receive,
-      ),
-    );
-  }
 
   Widget _compactThought(PetController c, String thought, bool fromAi) {
     final title = '${c.pet.name}의 ${fromAi ? 'AI 속마음' : '속마음'}';

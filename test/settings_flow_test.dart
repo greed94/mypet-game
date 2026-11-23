@@ -64,6 +64,27 @@ void main() {
     }
   }
 
+  Future<Finder> readyPhotoChoice(WidgetTester tester) async {
+    final confirm = find.widgetWithText(FilledButton, '이 얼굴로 바꾸기');
+    for (var i = 0; i < 180; ++i) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 8)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      if (confirm.hitTestable().evaluate().isNotEmpty &&
+          tester.widget<FilledButton>(confirm).onPressed != null) {
+        return confirm;
+      }
+    }
+    throw TestFailure('털색과 픽셀 초상화가 준비된 확정 버튼을 기다렸습니다.');
+  }
+
+  Future<void> confirmPhoto(WidgetTester tester) async {
+    final confirm = await readyPhotoChoice(tester);
+    await tester.runAsync(() => tester.tap(confirm.hitTestable()));
+    await tester.pump();
+  }
+
   Future<void> openSettings(
     WidgetTester tester,
     PetController controller, {
@@ -402,7 +423,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('사진 폴더 대기 중 닫으면 기존 초상화를 지키고 새 화면에서 다시 바꿀 수 있다', (tester) async {
+  testWidgets('확정 뒤 설정을 닫아도 같은 펫의 새 사진이 저장되고 원본 파일을 지킨다', (tester) async {
     final c = await mount(tester);
     final folder = (await tester.runAsync(
       () => Directory.systemTemp.createTemp('mypet-photo-save-'),
@@ -445,6 +466,7 @@ void main() {
         )
         .onPressed!;
     await start(tester, choose(), MockClient((_) async => response()), errors);
+    await confirmPhoto(tester);
     await tester.runAsync(
       () => requested.future.timeout(const Duration(seconds: 2)),
     );
@@ -454,11 +476,13 @@ void main() {
       await pumpEventQueue();
     });
     await drain(tester);
-    expect(c.pet.portraitPath, isNull);
+    await tester.runAsync(() => c.settled);
+    expect(c.pet.portraitPath, isNotNull);
     expect((await tester.runAsync(() => old.readAsBytes())), originalBytes);
-    expect((await tester.runAsync(() async => folder.listSync().length)), 2);
+    expect((await tester.runAsync(() async => folder.listSync().length)), 3);
     await openSettings(tester, c);
     await start(tester, choose(), MockClient((_) async => response()), errors);
+    await confirmPhoto(tester);
     for (var i = 0; i < 20 && c.pet.portraitPath == null; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 5)),
@@ -480,6 +504,77 @@ void main() {
           .onPressed,
       isNotNull,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('설정에서 사진과 털색을 확인하다 뒤로 가면 저장소와 기존 펫이 그대로다', (tester) async {
+    late AppDatabase db;
+    final c = await mount(
+      tester,
+      database: () => db = AppDatabase(NativeDatabase.memory()),
+    );
+    final previous = c.pet;
+    const picker = MethodChannel('plugins.flutter.io/image_picker');
+    const paths = MethodChannel('plugins.flutter.io/path_provider');
+    final fixture = File(
+      'tools/scene_preview/fixtures/synthetic-beagle.jpg',
+    ).absolute;
+    final folder = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('mypet-confirm-photo-'),
+    ))!;
+    var directoryRequests = 0;
+    messenger.setMockMethodCallHandler(picker, (_) async => fixture.path);
+    messenger.setMockMethodCallHandler(paths, (_) async {
+      return ++directoryRequests == 1 ? null : folder.path;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(picker, null);
+      messenger.setMockMethodCallHandler(paths, null);
+      await tester.runAsync(() => folder.delete(recursive: true));
+    });
+    final choose = find.text('사진으로 색 다시 뽑기');
+    await tester.runAsync(() => tester.tap(choose));
+    await readyPhotoChoice(tester);
+    expect(c.pet.furMain, previous.furMain);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    await drain(tester);
+    expect(find.byType(SettingsScreen), findsOneWidget);
+    expect(directoryRequests, 0);
+    await tester.runAsync(() async {
+      expect(await db.loadPet(), previous);
+      expect(folder.listSync(), isEmpty);
+      expect(await fixture.exists(), isTrue);
+    });
+    await tester.runAsync(() => tester.tap(choose));
+    await readyPhotoChoice(tester);
+    tester.widget<Slider>(find.byType(Slider)).onChanged!(2);
+    await tester.pump();
+    final rect = tester.getRect(find.byKey(const ValueKey('pet-photo-frame')));
+    await tester.tapAt(
+      Offset(rect.left + rect.width * .78, rect.top + rect.height * .44),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+    await confirmPhoto(tester);
+    final retry = find.text('이 얼굴 다시 저장');
+    for (var i = 0; i < 20 && retry.hitTestable().evaluate().isEmpty; i++) {
+      await drain(tester);
+    }
+    expect(directoryRequests, 1);
+    expect(c.pet.portraitPath, previous.portraitPath);
+    await tester.runAsync(() => tester.tap(retry.hitTestable()));
+    for (var i = 0; i < 20 && c.pet.portraitPath == null; i++) {
+      await drain(tester);
+    }
+    expect(directoryRequests, 2);
+    final fur = c.pet.furMain;
+    expect((fur >> 16) & 255, greaterThan((fur & 255) + 20));
+    await tester.runAsync(() async {
+      final saved = (await db.loadPet())!;
+      expect(saved.furMain, fur);
+      expect(await File(saved.portraitPath!).exists(), isTrue);
+      expect(folder.listSync().whereType<File>(), hasLength(1));
+    });
     expect(tester.takeException(), isNull);
   });
 
@@ -525,6 +620,7 @@ void main() {
     }
 
     await tester.runAsync(() => tester.tap(find.text('사진으로 색 다시 뽑기')));
+    await confirmPhoto(tester);
     final retry = find.text('이 얼굴 다시 저장');
     await awaitCondition(() => retry.hitTestable().evaluate().isNotEmpty);
     await drain(tester);
@@ -536,6 +632,10 @@ void main() {
       expect(await source.exists(), isTrue);
       await db.customStatement('DROP TRIGGER reject_image');
     });
+    await tester.pumpWidget(const SizedBox());
+    await drain(tester);
+    await openSettings(tester, c);
+    expect(find.text('새 얼굴을 저장하지 못했어요.'), findsOneWidget);
     await tester.runAsync(() => tester.tap(retry.hitTestable()));
     await awaitCondition(
       () => c.pet.portraitPath != null && retry.evaluate().isEmpty,

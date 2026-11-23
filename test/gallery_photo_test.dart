@@ -67,6 +67,16 @@ void main() {
         await retirePetPortrait(docs, safe.path, other.path);
         expect(await safe.exists(), isTrue);
       }
+      final debug = sqlite3.open('${docs.path}/mypet_debug.sqlite');
+      try {
+        debug.execute('CREATE TABLE pets(portrait_path TEXT)');
+        final debugPhoto = await createPetPortrait(docs);
+        debug.execute('INSERT INTO pets VALUES (?)', [debugPhoto.path]);
+        await retirePetPortrait(docs, debugPhoto.path, other.path);
+        expect(await debugPhoto.exists(), isTrue);
+      } finally {
+        debug.close();
+      }
       practice.execute('DROP TABLE pets');
       final unknown = await createPetPortrait(docs);
       await retirePetPortrait(docs, unknown.path, other.path);

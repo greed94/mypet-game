@@ -279,8 +279,12 @@ class KinderPhotos extends Table {
   ],
 )
 class AppDatabase extends _$AppDatabase {
+  static const realName = 'mypet';
+  static const practiceName = 'mypet_test';
+  static const debugName = 'mypet_debug';
+
   AppDatabase([QueryExecutor? executor])
-    : super(executor ?? driftDatabase(name: 'mypet'));
+    : super(executor ?? driftDatabase(name: realName));
 
   @override
   int get schemaVersion => 35;

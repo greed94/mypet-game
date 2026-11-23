@@ -22,8 +22,8 @@ class TestMode {
   /// 실제 시각보다 앞선 만큼. 앞으로만 간다.
   Duration offset;
 
-  static const realDb = 'mypet';
-  static const testDb = 'mypet_test';
+  static const realDb = AppDatabase.realName;
+  static const testDb = AppDatabase.practiceName;
 
   String get dbName => on ? testDb : realDb;
 

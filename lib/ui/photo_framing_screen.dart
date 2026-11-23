@@ -16,6 +16,7 @@ Future<PetPhotoSelection?> editPetPhoto(
   required String shape,
   required PetStage stage,
   required int accent,
+  String confirmLabel = '이 영역 사용',
 }) => Navigator.of(context).push<PetPhotoSelection>(
   MaterialPageRoute(
     builder: (_) => PhotoFramingScreen(
@@ -24,6 +25,7 @@ Future<PetPhotoSelection?> editPetPhoto(
       shape: shape,
       stage: stage,
       accent: accent,
+      confirmLabel: confirmLabel,
     ),
   ),
 );
@@ -37,7 +39,9 @@ class PhotoFrameButton extends StatelessWidget {
     this.shape = 'papillon',
     this.stage = PetStage.puppy,
     this.accent = defaultAccent,
+    this.confirmLabel = '이 영역 사용',
   });
+  final String confirmLabel;
   final String shape;
   final PetStage stage;
   final int accent;
@@ -58,6 +62,7 @@ class PhotoFrameButton extends StatelessWidget {
               shape: shape,
               stage: stage,
               accent: accent,
+              confirmLabel: confirmLabel,
             );
             if (context.mounted && result != null) {
               onApply?.call((source: photo.source, selection: result));
@@ -74,7 +79,9 @@ class PhotoFramingScreen extends StatefulWidget {
     required this.shape,
     required this.stage,
     required this.accent,
+    required this.confirmLabel,
   });
+  final String confirmLabel;
   final String shape;
   final PetStage stage;
   final int accent;
@@ -484,7 +491,7 @@ class _PhotoFramingScreenState extends State<PhotoFramingScreen> {
                     onPressed: _ready
                         ? () => Navigator.of(context).pop(_preview)
                         : null,
-                    child: const Text('이 영역 사용'),
+                    child: Text(widget.confirmLabel),
                   ),
                 ),
               ),

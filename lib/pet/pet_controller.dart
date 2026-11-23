@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../art/photo_art.dart';
 import '../brain/pet_brain.dart';
 import '../data/database.dart';
+import '../services/gallery_photo.dart' show storePetPortrait;
 import '../services/regions.dart';
 import '../services/telemetry.dart';
 import '../services/weather.dart';
@@ -1178,8 +1179,10 @@ class PetController extends ChangeNotifier {
 
   /// 기록 삭제나 DB 전환에 실패하면 아직 살아 있는 같은 펫으로 돌아간다.
   void cancelReset() {
+    final showRetry = _resetPending && _retryPhoto != null;
     _resetPending = false;
     _resetDrain = null;
+    if (showRetry && !_disposed) notifyListeners();
   }
 
   /// 열 때 시작한 비동기 일(날씨·어제 일기·수집·하원 수업)이 다 끝날 때. DB를 바꾸기(연습 모드) 전에 기다린다.
@@ -1487,6 +1490,37 @@ class PetController extends ChangeNotifier {
   }
 
   Future<void> _appearanceWrites = Future.value();
+  bool _savingPhoto = false;
+  PetPhotoLook? _retryPhoto;
+  bool get savingPhoto => _savingPhoto;
+  PetPhotoLook? get retryPhoto =>
+      _resetPending || _disposed ? null : _retryPhoto;
+
+  /// 화면이 닫혀도 확정한 얼굴은 이 펫에 저장한다. 실패 시에는 작은 결과만 보관한다.
+  Future<bool> saveConfirmedPhoto(PetPhotoLook look) {
+    if (_disposed || _resetPending || _savingPhoto) return Future.value(false);
+    _savingPhoto = true;
+    final pending = _tracked(_storeConfirmedPhoto(look));
+    notifyListeners();
+    return pending;
+  }
+
+  Future<bool> _storeConfirmedPhoto(PetPhotoLook look) async {
+    bool current() => !_disposed && !_resetPending;
+    var saved = false;
+    try {
+      saved = await storePetPortrait(
+        look.portrait,
+        current: current,
+        commit: (path) => changeColors(look.colors, portraitPath: path),
+      );
+      return saved;
+    } finally {
+      _savingPhoto = false;
+      _retryPhoto = !saved && !_disposed ? look : null;
+      if (current()) notifyListeners();
+    }
+  }
 
   /// 파일과 DB가 연결된 뒤에만 외모를 바꾼다. 직전 초상화 경로로 사용을 마친 파일을 찾는다.
   Future<({String? previousPortrait})?> changeColors(
@@ -4744,6 +4778,7 @@ class PetController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _retryPhoto = null;
     unawaited(_cues.close());
     super.dispose();
   }

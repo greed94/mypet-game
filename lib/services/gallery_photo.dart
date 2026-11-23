@@ -8,7 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 
-import 'test_mode.dart';
+import '../data/database.dart' show AppDatabase;
 
 /// Android 갤러리 원본은 소유자 갤러리에 둔다. 플러그인이 별도로 만든 앱 캐시 사본만 회수한다.
 Future<Uint8List?> pickPetPhotoBytes(bool Function() current) async {
@@ -106,7 +106,39 @@ Future<File> createPetPortrait(Directory documents) async {
   }
 }
 
-/// 이름·형식·위치를 확인한 앱 생성 초상화만, 실제·연습 DB 어디에도 참조가 없을 때 제거한다.
+/// 확정한 PNG를 완성하고, 선택을 확정한 펫이 유효한 동안 DB에 연결한다.
+Future<bool> storePetPortrait(
+  Uint8List png, {
+  required bool Function() current,
+  required Future<({String? previousPortrait})?> Function(String path) commit,
+}) async {
+  File? pending;
+  try {
+    final directory = await getApplicationDocumentsDirectory();
+    if (!current()) return false;
+    pending = await createPetPortrait(directory);
+    await pending.writeAsBytes(png, flush: true);
+    if (!current()) return false;
+    final path = pending.path;
+    final saved = await commit(path);
+    if (saved == null) return false;
+    pending = null;
+    await retirePetPortrait(directory, saved.previousPortrait, path);
+    return true;
+  } on Exception {
+    return false;
+  } finally {
+    if (pending != null) {
+      try {
+        await pending.delete();
+      } on FileSystemException {
+        // DB가 참조하는 기존 파일은 이 작업에 속하지 않는다.
+      }
+    }
+  }
+}
+
+/// 이름·형식·위치를 확인한 앱 생성 초상화만, 이 앱의 DB 어디에도 참조가 없을 때 제거한다.
 Future<void> retirePetPortrait(
   Directory documents,
   String? oldPath,
@@ -133,7 +165,11 @@ Future<void> retirePetPortrait(
 }
 
 bool _portraitInUse(({String root, String path}) args) {
-  for (final name in [TestMode.realDb, TestMode.testDb]) {
+  for (final name in const [
+    AppDatabase.realName,
+    AppDatabase.practiceName,
+    AppDatabase.debugName,
+  ]) {
     final file = File('${args.root}/$name.sqlite');
     if (!file.existsSync()) continue;
     final reader = sqlite3.open(file.path, mode: OpenMode.readOnly);

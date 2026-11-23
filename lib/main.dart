@@ -62,7 +62,7 @@ Future<Widget> _loadApp() async {
   DateTime clock() => testMode.now().add(offset);
 
   var db = AppDatabase(
-    driftDatabase(name: debugTime ? 'mypet_debug' : testMode.dbName),
+    driftDatabase(name: debugTime ? AppDatabase.debugName : testMode.dbName),
   );
   try {
     // 연습 모드가 켜진 채인데 연습 펫이 없으면(파일만 남음) 처음 만들기 화면에 갇혀 끌 수가 없다. 진짜 펫으로 연다.

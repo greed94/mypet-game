@@ -9,6 +9,7 @@ import 'package:mypet/data/database.dart';
 import 'package:mypet/main.dart';
 import 'package:mypet/services/test_mode.dart';
 import 'package:mypet/ui/home_screen.dart';
+import 'package:mypet/ui/settings_screen.dart';
 
 import 'capture_preview.dart';
 import 'preview_fonts.dart';
@@ -143,6 +144,46 @@ void main() {
       final kept = File(pet.portraitPath!);
       final firstPixels = await tester.runAsync(() => kept.readAsBytes());
       expect(firstPixels, isNotEmpty);
+      await tester.tap(find.bySemanticsLabel('설정').hitTestable());
+      await drain(22);
+      final chooseAgain = find.text('사진으로 색 다시 뽑기');
+      final settingsList = find
+          .descendant(
+            of: find.byType(SettingsScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(
+        chooseAgain,
+        230,
+        scrollable: settingsList,
+      );
+      await drain(22);
+      await tester.runAsync(() => tester.tap(chooseAgain.hitTestable()));
+      final replace = find.widgetWithText(FilledButton, '이 얼굴로 바꾸기');
+      await until(
+        () =>
+            replace.hitTestable().evaluate().isNotEmpty &&
+            tester.widget<FilledButton>(replace).onPressed != null,
+      );
+      await drain();
+      final proposed = File('${output.path}/settings-choice.png');
+      await capturePreview(tester, find.byKey(surface), proposed);
+      expect(
+        (await tester.runAsync(() => db.loadPet()))!.portraitPath,
+        kept.path,
+      );
+      // 갤러리가 제공한 중앙 사진은 청록색 소파다. 뒤로 두 번이면 기존 갈색 호두로 돌아온다.
+      await tester.tap(find.byType(BackButton).hitTestable());
+      await drain(22);
+      expect(find.byType(SettingsScreen), findsOneWidget);
+      await tester.tap(find.byType(BackButton).hitTestable());
+      await drain(22);
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(c.pet.furMain, mainColor);
+      expect(c.pet.portraitPath, kept.path);
+      final unchanged = File('${output.path}/after-cancel.png');
+      await capturePreview(tester, find.byKey(surface), unchanged);
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(milliseconds: 20));
       await tester.runAsync(() async {
@@ -178,6 +219,22 @@ void main() {
           '${output.parent.path}/mypet-photo-framing.png',
         ]);
         expect(encoded.exitCode, 0, reason: encoded.stderr.toString());
+        final compared = await Process.run('ffmpeg', [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-y',
+          '-i',
+          proposed.path,
+          '-i',
+          unchanged.path,
+          '-filter_complex',
+          'hstack=inputs=2',
+          '-frames:v',
+          '1',
+          '${output.parent.path}/mypet-photo-cancel.png',
+        ]);
+        expect(compared.exitCode, 0, reason: compared.stderr.toString());
       });
       expect(tester.takeException(), isNull);
     },

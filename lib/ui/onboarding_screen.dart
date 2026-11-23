@@ -186,9 +186,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         if (portrait != null) {
           final dir = await getApplicationDocumentsDirectory();
           if (!mounted) return;
-          portraitFile = File(
-            '${dir.path}/portrait-${DateTime.now().microsecondsSinceEpoch}.png',
-          );
+          portraitFile = await createPetPortrait(dir);
           await portraitFile.writeAsBytes(portrait, flush: true);
           if (!mounted) return;
         }

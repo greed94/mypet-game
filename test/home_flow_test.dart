@@ -18,6 +18,7 @@ import 'package:mypet/pet/friends.dart';
 import 'package:mypet/pet/guest.dart';
 import 'package:mypet/pet/pet_controller.dart';
 import 'package:mypet/pet/pet_rules.dart';
+import 'package:mypet/pet/spots.dart';
 import 'package:mypet/pet/tricks.dart';
 import 'package:mypet/services/notifications.dart';
 import 'package:mypet/services/test_mode.dart';
@@ -206,6 +207,47 @@ void main() {
     }
     expect(done(), isTrue);
   }
+
+  testWidgets('집 사진의 동네 지도에서 가게로 가고 돌아오면 다시 지도를 열 수 있다', (tester) async {
+    final home = await make(tester);
+    await mount(tester, home);
+    final map = find.text('동네 지도').hitTestable();
+    await tester.tap(map);
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('어디 갈까?'), findsOneWidget);
+    await tester.tap(find.text('간식 가게').hitTestable());
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(home.c.spot, Spot.treatShop);
+    expect(map, findsNothing);
+    await tester.tap(find.text('집으로').hitTestable());
+    await tester.pump();
+    expect(home.c.spot, Spot.home);
+    expect(map, findsOneWidget);
+  });
+
+  testWidgets('그림 안의 속마음을 화면 읽기에서도 같은 문장으로 읽는다', (tester) async {
+    final home = await make(tester);
+    await mount(tester, home);
+    expect(home.c.startWalk(), isTrue);
+    await tester.pump();
+    final node = tester.getSemantics(find.bySemanticsLabel('콩이의 속마음'));
+    expect(node.value, '산책이다!');
+    expect(home.c.bubble, node.value);
+  });
+
+  testWidgets('일기·도감에서 시스템 뒤로를 누르면 돌보던 집으로 돌아간다', (tester) async {
+    final home = await make(tester);
+    await mount(tester, home);
+    for (final tab in ['일기', '도감']) {
+      await tester.tap(find.text(tab).hitTestable());
+      await tester.pump();
+      expect(home.c.roomHidden, isTrue);
+      await tester.binding.handlePopRoute();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(home.c.roomHidden, isFalse);
+      expect(find.text('밥 주기').hitTestable(), findsOneWidget);
+    }
+  });
 
   testWidgets('가게 버튼으로 사고 하나 더 사면 발도장·주머니·집 버튼이 함께 바뀐다', (tester) async {
     final home = await make(tester);

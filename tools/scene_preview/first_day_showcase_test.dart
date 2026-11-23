@@ -136,7 +136,33 @@ void main() {
     await drain();
     await record('다시 펼친 일기  ·  어제의 첫 만남과 밥 한 끼', 42);
 
+    await tester.tap(find.text('집').hitTestable());
+    await drain();
+    final roomShot = File('${output.path}/mypet-room.png');
+    final mapShot = File('${output.path}/mypet-map.png');
+    await capturePreview(tester, find.byKey(screen), roomShot);
+    await tester.tap(find.text('동네 지도').hitTestable());
+    await drain();
+    expect(find.text('어디 갈까?'), findsOneWidget);
+    await capturePreview(tester, find.byKey(screen), mapShot);
     await tester.runAsync(() async {
+      final spread = await Process.run('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-i',
+        roomShot.path,
+        '-i',
+        mapShot.path,
+        '-filter_complex',
+        'hstack=inputs=2',
+        '-frames:v',
+        '1',
+        '${output.path}/mypet-neighborhood.png',
+      ]);
+      expect(spread.exitCode, 0, reason: spread.stderr.toString());
+
       final filters = ['pad=iw:ih+72:0:0:color=0x38312c'];
       for (final (n, chapter) in chapters.indexed) {
         final (caption, start, end) = chapter;

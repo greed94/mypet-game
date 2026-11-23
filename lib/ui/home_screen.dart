@@ -400,10 +400,18 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// 방 문을 탭했다. 지도에서 고른 곳으로 간다. 지도가 떠 있는 동안은 쉬 신호를 미룬다.
+  /// 방 문이나 사진 아래 지도를 누르면 동네를 고른다. 지도가 떠 있는 동안은 쉬 신호를 미룬다.
   Future<void> _openMap() async {
     final c = widget.controller;
-    if (!_acceptsInput || !c.canGoOut()) return;
+    if (!_acceptsInput ||
+        c.uiBusy ||
+        _tab != 0 ||
+        c.out ||
+        c.walking ||
+        c.replaying ||
+        !c.canGoOut()) {
+      return;
+    }
     c.uiBusy = true;
     Spot? picked;
     try {
@@ -417,7 +425,14 @@ class _HomeScreenState extends State<HomeScreen> {
     } finally {
       c.uiBusy = false;
     }
-    if (!mounted || !_acceptsInput) return;
+    if (!mounted ||
+        !_acceptsInput ||
+        _tab != 0 ||
+        c.out ||
+        c.walking ||
+        c.replaying) {
+      return;
+    }
     switch (picked) {
       case Spot.cafe:
         if (c.goToCafe()) unawaited(_maybeFriendCard());
@@ -649,45 +664,51 @@ class _HomeScreenState extends State<HomeScreen> {
     final c = widget.controller;
     final top = MediaQuery.paddingOf(context).top;
     final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
-    // 탭을 bottomNavigationBar에 둬야 스낵바가 탭을 덮지 않고 그 위에 뜬다.
-    return Scaffold(
-      backgroundColor: C3Colors.kraft,
-      body: PaperBackground(
-        child: Padding(
-          padding: EdgeInsets.only(top: top + 8),
-          child: IndexedStack(
-            index: _tab,
-            children: [
-              _home(c, typing),
-              DiaryScreen(controller: c, db: widget.db),
-              CollectionScreen(controller: c),
-            ],
+    // 기록을 읽다가 뒤로 가면 돌보던 집으로 돌아간다.
+    return PopScope<void>(
+      canPop: _tab == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _tab != 0 && _acceptsInput) _selectTab(0);
+      },
+      child: Scaffold(
+        backgroundColor: C3Colors.kraft,
+        body: PaperBackground(
+          child: Padding(
+            padding: EdgeInsets.only(top: top + 8),
+            child: IndexedStack(
+              index: _tab,
+              children: [
+                _home(c, typing),
+                DiaryScreen(controller: c, db: widget.db),
+                CollectionScreen(controller: c),
+              ],
+            ),
           ),
         ),
+        // 글을 쓰는 동안은 탭을 숨겨 방이 덜 줄어들게 한다.
+        bottomNavigationBar: typing
+            ? null
+            : ListenableBuilder(
+                listenable: c,
+                builder: (context, _) {
+                  // 일기 탭을 보고 있는 동안 써진 일기는 이미 본 것이다.
+                  if (_tab == 1) _seenDiary = c.diaryVersion;
+                  return IndexTabs(
+                    labels: const ['집', '일기', '도감'],
+                    icons: const ['house', 'book', 'box'],
+                    selected: _tab,
+                    // 새 일기가 써졌으면 일기 탭을 열 때까지 점을 찍어 둔다.
+                    dots: {if (c.diaryVersion != _seenDiary) 1},
+                    onSelect: (i) {
+                      Telemetry.track('tab', {
+                        'to': const ['home', 'diary', 'collection'][i],
+                      });
+                      _selectTab(i);
+                    },
+                  );
+                },
+              ),
       ),
-      // 글을 쓰는 동안은 탭을 숨겨 방이 덜 줄어들게 한다.
-      bottomNavigationBar: typing
-          ? null
-          : ListenableBuilder(
-              listenable: c,
-              builder: (context, _) {
-                // 일기 탭을 보고 있는 동안 써진 일기는 이미 본 것이다.
-                if (_tab == 1) _seenDiary = c.diaryVersion;
-                return IndexTabs(
-                  labels: const ['집', '일기', '도감'],
-                  icons: const ['house', 'book', 'box'],
-                  selected: _tab,
-                  // 새 일기가 써졌으면 일기 탭을 열 때까지 점을 찍어 둔다.
-                  dots: {if (c.diaryVersion != _seenDiary) 1},
-                  onSelect: (i) {
-                    Telemetry.track('tab', {
-                      'to': const ['home', 'diary', 'collection'][i],
-                    });
-                    _selectTab(i);
-                  },
-                );
-              },
-            ),
     );
   }
 
@@ -734,12 +755,41 @@ class _HomeScreenState extends State<HomeScreen> {
               builder: (context, child) => Polaroid(
                 caption: _caption(c),
                 captionRight: _captionRight(c),
+                action: typing || c.walking || c.out || c.replaying
+                    ? null
+                    : TextButton.icon(
+                        onPressed: _openMap,
+                        icon: const Icon(Icons.map_outlined, size: 17),
+                        label: const Text('동네 지도'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: C3Colors.ink,
+                          backgroundColor: C3Colors.tapeMint,
+                          textStyle: C3Text.label.copyWith(fontSize: 14),
+                          minimumSize: const Size(0, 32),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                      ),
                 child: child!,
               ),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  GameWidget(game: _game),
+                  ListenableBuilder(
+                    listenable: c,
+                    child: GameWidget(game: _game),
+                    builder: (context, game) {
+                      final thought = c.bubble;
+                      return Semantics(
+                        container: true,
+                        liveRegion: thought != null,
+                        label: thought == null
+                            ? c.pet.name
+                            : '${c.pet.name}의 ${c.bubbleFromAi ? 'AI 속마음' : '속마음'}',
+                        value: thought,
+                        child: game,
+                      );
+                    },
+                  ),
                   ListenableBuilder(
                     listenable: c,
                     builder: (context, _) => Stack(

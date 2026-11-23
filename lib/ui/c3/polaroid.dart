@@ -10,11 +10,13 @@ class Polaroid extends StatelessWidget {
     required this.child,
     required this.caption,
     this.captionRight,
+    this.action,
   });
 
   final Widget child;
   final String caption;
   final String? captionRight;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +51,7 @@ class Polaroid extends StatelessWidget {
                 ),
               ),
               SizedBox(
-                height: 32,
+                height: action == null ? 32 : 48,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(4, 0, 4, 1),
                   child: Row(
@@ -70,16 +72,26 @@ class Polaroid extends StatelessWidget {
                         ),
                       ),
                       if (captionRight != null)
-                        Text(
-                          captionRight!,
-                          maxLines: 1,
-                          style: const TextStyle(
-                            fontFamily: C3Fonts.jua,
-                            fontFamilyFallback: C3Fonts.fallback,
-                            fontSize: 13,
-                            color: C3Colors.ink3,
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: action == null ? double.infinity : 92,
+                          ),
+                          child: Text(
+                            captionRight!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: C3Fonts.jua,
+                              fontFamilyFallback: C3Fonts.fallback,
+                              fontSize: 13,
+                              color: C3Colors.ink3,
+                            ),
                           ),
                         ),
+                      if (action != null) ...[
+                        const SizedBox(width: 6),
+                        action!,
+                      ],
                     ],
                   ),
                 ),

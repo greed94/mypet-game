@@ -12,10 +12,10 @@ class _HeldSaveDb extends AppDatabase {
   bool failSave = false;
 
   @override
-  Future<void> savePet(Pet pet) async {
+  Future<void> savePetState(Pet pet) async {
     await gate?.future;
     if (failSave) throw StateError('synthetic save failure');
-    await super.savePet(pet);
+    await super.savePetState(pet);
   }
 }
 

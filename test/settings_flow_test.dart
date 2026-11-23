@@ -101,13 +101,14 @@ void main() {
   Future<PetController> mount(
     WidgetTester tester, {
     double textScale = 1,
+    AppDatabase Function()? database,
   }) async {
     tester.view.physicalSize = const Size(1080, 9000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     late AppDatabase db;
     final controller = (await tester.runAsync(() async {
-      db = AppDatabase(NativeDatabase.memory());
+      db = database?.call() ?? AppDatabase(NativeDatabase.memory());
       final pet = await db.createPet(
         name: '콩이',
         stage: PetStage.adult,
@@ -479,6 +480,77 @@ void main() {
           .onPressed,
       isNotNull,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('사진 쓰기만 거절되면 기존 외모가 남고 같은 얼굴을 다시 눌러 저장한다', (tester) async {
+    late AppDatabase db;
+    final c = await mount(
+      tester,
+      database: () => db = AppDatabase(NativeDatabase.memory()),
+    );
+    final previous = c.pet;
+    final folder = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('mypet-retry-portrait-'),
+    ))!;
+    const picker = MethodChannel('plugins.flutter.io/image_picker');
+    const paths = MethodChannel('plugins.flutter.io/path_provider');
+    var picks = 0;
+    final source = File(
+      'tools/scene_preview/fixtures/synthetic-beagle.jpg',
+    ).absolute;
+    messenger.setMockMethodCallHandler(picker, (_) async {
+      picks++;
+      return source.path;
+    });
+    messenger.setMockMethodCallHandler(paths, (_) async => folder.path);
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(picker, null);
+      messenger.setMockMethodCallHandler(paths, null);
+      await tester.runAsync(() => folder.delete(recursive: true));
+    });
+    await tester.runAsync(
+      () => db.customStatement(
+        "CREATE TRIGGER reject_image BEFORE UPDATE OF portrait_path ON pets BEGIN SELECT RAISE(ABORT, 'qa'); END",
+      ),
+    );
+    Future<void> awaitCondition(bool Function() done) async {
+      for (var i = 0; i < 200 && !done(); i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 8)),
+        );
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(done(), isTrue);
+    }
+
+    await tester.runAsync(() => tester.tap(find.text('사진으로 색 다시 뽑기')));
+    final retry = find.text('이 얼굴 다시 저장');
+    await awaitCondition(() => retry.hitTestable().evaluate().isNotEmpty);
+    await drain(tester);
+    expect(c.pet.furMain, previous.furMain);
+    expect(c.pet.portraitPath, previous.portraitPath);
+    await tester.runAsync(() async {
+      expect((await db.loadPet())!.portraitPath, previous.portraitPath);
+      expect(folder.listSync().whereType<File>(), isEmpty);
+      expect(await source.exists(), isTrue);
+      await db.customStatement('DROP TRIGGER reject_image');
+    });
+    await tester.runAsync(() => tester.tap(retry.hitTestable()));
+    await awaitCondition(
+      () => c.pet.portraitPath != null && retry.evaluate().isEmpty,
+    );
+    expect(picks, 1);
+    await tester.runAsync(() async {
+      final stored = (await db.loadPet())!;
+      expect(stored.furMain, c.pet.furMain);
+      expect(stored.portraitPath, c.pet.portraitPath);
+      expect(
+        img.decodePng(await File(stored.portraitPath!).readAsBytes())!.width,
+        64,
+      );
+      expect(folder.listSync().whereType<File>(), hasLength(1));
+    });
     expect(tester.takeException(), isNull);
   });
 

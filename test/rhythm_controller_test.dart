@@ -88,7 +88,7 @@ void main() {
     final c = await open();
     c.wake();
     final version = c.spriteVersion;
-    c.changeColors(
+    await c.changeColors(
       const PetColors(
         main: 0xFFF5EEE1,
         second: 0xFFFFFFFF,

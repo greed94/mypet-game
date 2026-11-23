@@ -2,9 +2,10 @@ import 'dart:async';
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
+import '../services/gallery_photo.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../pet/josa.dart';
@@ -12,6 +13,7 @@ import '../brain/ai_config.dart';
 import '../brain/firebase_brain.dart';
 import '../brain/pet_brain.dart';
 import '../art/photo_art.dart';
+import 'photo_framing_screen.dart';
 import '../pet/pet_controller.dart';
 import '../services/notifications.dart';
 import '../services/sfx.dart';
@@ -58,6 +60,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   };
   bool _busy = false;
   bool _photoBusy = false;
+  EditablePetPhoto? _editablePhoto;
+  EditablePetPhoto? _pendingPhoto;
   bool _telemetryOff = false;
 
   @override
@@ -224,43 +228,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   /// 온보딩에서 색만 골랐거나 다른 사진으로 바꾸고 싶을 때. 온보딩과 같은 방법으로 털색과 초상화를 뽑는다.
-  Future<void> _recolorFromPhoto() async {
+  Future<void> _recolorFromPhoto({EditablePetPhoto? edited}) async {
     final c = widget.controller;
-    if (!mounted || _photoBusy || c.isDisposed) return;
-    bool active() => mounted && !c.isDisposed;
+    if (!mounted || _photoBusy || c.isDisposed || c.isResetting) return;
+    bool active() =>
+        mounted &&
+        identical(widget.controller, c) &&
+        !c.isDisposed &&
+        !c.isResetting;
     setState(() => _photoBusy = true);
     _showFeedback(_SettingsFeedback.photo, null);
     File? pending;
+    EditablePetPhoto? selected;
     try {
-      final file = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1200,
-        maxHeight: 1200,
-      );
-      if (file == null || !active()) return;
-      final bytes = await file.readAsBytes();
-      if (!active()) return;
-      final colors = extractPetColors(bytes);
-      final portrait = pixelPortraitPng(bytes);
-      if (colors == null || portrait == null) {
-        _showFeedback(_SettingsFeedback.photo, '사진을 읽지 못했어요. 다른 사진으로 해볼까요?');
-        return;
+      EditablePetPhoto photo;
+      if (edited != null) {
+        if (!identical(_editablePhoto?.source.pixels, edited.source.pixels) &&
+            !identical(_pendingPhoto?.source.pixels, edited.source.pixels)) {
+          return;
+        }
+        photo = edited;
+      } else {
+        final bytes = await pickPetPhotoBytes(active);
+        if (bytes == null || !active()) return;
+        final prepared = await compute(preparePetPhoto, bytes);
+        if (!active()) return;
+        if (prepared == null) {
+          _showFeedback(_SettingsFeedback.photo, '사진을 읽지 못했어요. 다른 사진으로 해볼까요?');
+          return;
+        }
+        photo = centerPetPhoto(prepared);
       }
+      selected = photo;
       final dir = await getApplicationDocumentsDirectory();
       if (!active()) return;
       // 읽는 중인 기존 초상화를 덮지 않고 새 파일을 완성한 뒤 연결한다.
-      pending = File(
-        '${dir.path}/portrait-${DateTime.now().microsecondsSinceEpoch}.png',
-      );
-      await pending.writeAsBytes(portrait, flush: true);
+      pending = await createPetPortrait(dir);
+      await pending.writeAsBytes(photo.selection.look.portrait, flush: true);
       if (!active()) return;
-      c.changeColors(colors, portraitPath: pending.path);
+      final newPath = pending.path;
+      final saved = await c.changeColors(
+        photo.selection.look.colors,
+        portraitPath: newPath,
+      );
+      if (saved == null) {
+        if (active()) {
+          setState(() => _pendingPhoto = photo);
+          _showFeedback(
+            _SettingsFeedback.photo,
+            '새 얼굴을 저장하지 못했어요. 다시 저장할 수 있어요.',
+          );
+        }
+        return;
+      }
       pending = null;
-      _showFeedback(_SettingsFeedback.photo, '사진에서 뽑은 색으로 다시 칠했어요.');
+      await retirePetPortrait(dir, saved.previousPortrait, newPath);
+      if (!active()) return;
+      setState(() {
+        _editablePhoto = photo;
+        _pendingPhoto = null;
+      });
+      _showFeedback(
+        _SettingsFeedback.photo,
+        edited == null ? '사진에서 뽑은 색으로 다시 칠했어요.' : '고른 얼굴로 초상화와 털색을 바꿨어요.',
+      );
     } on PlatformException {
-      _showFeedback(_SettingsFeedback.photo, '사진을 열지 못했어요. 다시 골라 볼까요?');
+      if (active()) {
+        _showFeedback(_SettingsFeedback.photo, '사진을 열지 못했어요. 다시 골라 볼까요?');
+      }
     } on FileSystemException {
-      _showFeedback(_SettingsFeedback.photo, '사진을 읽거나 저장하지 못했어요. 다시 해볼까요?');
+      if (active()) {
+        if (selected != null) setState(() => _pendingPhoto = selected);
+        _showFeedback(_SettingsFeedback.photo, '사진을 읽거나 저장하지 못했어요. 다시 해볼까요?');
+      }
     } finally {
       if (pending != null) {
         try {
@@ -431,6 +471,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: const Icon(Icons.photo_outlined),
               label: const Text('사진으로 색 다시 뽑기'),
             ),
+            if (_editablePhoto case final photo?)
+              PhotoFrameButton(
+                shape: widget.controller.pet.shape,
+                stage: widget.controller.pet.stage,
+                accent: widget.controller.pet.accent,
+                photo: photo,
+                onApply: _photoBusy
+                    ? null
+                    : (next) => _recolorFromPhoto(edited: next),
+              ),
+            if (_pendingPhoto case final pending?)
+              TextButton.icon(
+                onPressed: _photoBusy
+                    ? null
+                    : () => _recolorFromPhoto(edited: pending),
+                icon: const Icon(Icons.refresh),
+                label: const Text('이 얼굴 다시 저장'),
+              ),
             _feedbackFor(_SettingsFeedback.photo),
             const Divider(height: 32),
             Text('AI', style: Theme.of(context).textTheme.titleSmall),

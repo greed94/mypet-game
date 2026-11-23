@@ -1,11 +1,13 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
+import '../services/gallery_photo.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../art/photo_art.dart';
+import 'photo_framing_screen.dart';
 import '../data/database.dart';
 import '../pet/pet_rules.dart';
 import '../pet/shapes.dart';
@@ -46,6 +48,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   PetColors? _colors;
   Uint8List? _portrait;
   bool _fromPhoto = false;
+  EditablePetPhoto? _editablePhoto;
   bool _picking = false;
   int _photoGen = 0;
   int _searchGen = 0;
@@ -80,25 +83,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     bool current() => mounted && mine == _photoGen;
     setState(() => _picking = true);
     try {
-      final file = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1200,
-        maxHeight: 1200,
-      );
+      final bytes = await pickPetPhotoBytes(current);
       if (!current()) return;
-      if (file == null) {
+      if (bytes == null) {
         Telemetry.track('photo_pick', {'result': 'cancel'});
         return;
       }
-      final bytes = await file.readAsBytes();
+      final source = await compute(preparePetPhoto, bytes);
       if (!current()) return;
-      final colors = extractPetColors(bytes);
-      final portrait = pixelPortraitPng(bytes);
-      if (colors == null || portrait == null) {
+      if (source == null) {
         Telemetry.track('photo_pick', {'result': 'unreadable'});
         _snack('사진을 읽지 못했어요. 다른 사진으로 해볼까요?');
         return;
       }
+      final colors = source.initial.colors;
       Telemetry.track('photo_pick', {
         'result': 'ok',
         'main':
@@ -106,11 +104,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         'marking':
             '#${(colors.marking & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
       });
-      setState(() {
-        _colors = colors;
-        _portrait = portrait;
-        _fromPhoto = true;
-      });
+      _usePhoto(centerPetPhoto(source));
     } on PlatformException {
       if (current()) _snack('사진을 열지 못했어요. 다시 골라 볼까요?');
     } on FileSystemException {
@@ -118,6 +112,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     } finally {
       if (current()) setState(() => _picking = false);
     }
+  }
+
+  void _usePhoto(EditablePetPhoto photo) {
+    setState(() {
+      _editablePhoto = photo;
+      _colors = photo.selection.look.colors;
+      _portrait = photo.selection.look.portrait;
+      _fromPhoto = true;
+    });
   }
 
   void _choosePreset(int i) {
@@ -129,6 +132,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _picking = false;
       _colors = PetColors(main: p.$2, second: p.$3, marking: p.$4);
       _portrait = null;
+      _editablePhoto = null;
       _fromPhoto = false;
     });
   }
@@ -313,7 +317,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final colors = _colors;
     return _Page(
       title: '어떤 아이인가요?',
-      subtitle: '사진을 올리면 털색을 뽑아 우리 아이 색으로 칠해요. 사진이 없으면 색만 골라도 돼요.',
+      subtitle: '사진에서 털색과 픽셀 초상화를 만들어요. 사진 없이 시작하려면 아래에서 색을 골라 주세요.',
       footer: '속마음과 일기에는 AI를 사용할 수 있어요. 연결이 없을 때도 강아지는 반응하고 일기를 써요.',
       next: colors == null ? null : () => _go(1),
       child: Column(
@@ -324,6 +328,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             icon: const Icon(Icons.photo),
             label: Text(_picking ? '읽는 중…' : '사진으로 만들기'),
           ),
+          if (_editablePhoto case final photo?)
+            PhotoFrameButton(
+              shape: _shape,
+              stage: _stage,
+              photo: photo,
+              onApply: _picking || _creating
+                  ? null
+                  : (next) {
+                      if (_step == 0 &&
+                          !_creating &&
+                          identical(
+                            _editablePhoto?.source.pixels,
+                            next.source.pixels,
+                          )) {
+                        _usePhoto(next);
+                      }
+                    },
+            ),
           const SizedBox(height: 16),
           Text('또는 색 고르기', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),

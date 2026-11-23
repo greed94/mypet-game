@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
+import '../services/gallery_photo.dart';
 
 import '../art/photo_art.dart';
+import 'photo_framing_screen.dart';
 import '../pet/friends.dart';
 import '../pet/guest.dart';
 import '../pet/josa.dart';
@@ -45,6 +47,7 @@ class _KnownDogScreenState extends State<KnownDogScreen> {
   late String _shape = widget.dog?.shape ?? friendShapes.first.id;
   late bool _puppy = widget.dog?.puppy ?? false;
   bool _fromPhoto = false;
+  EditablePetPhoto? _editablePhoto;
   bool _picking = false;
   bool _saving = false;
   int _photoGen = 0;
@@ -73,6 +76,14 @@ class _KnownDogScreenState extends State<KnownDogScreen> {
       ..showSnackBar(SnackBar(content: Text(text)));
   }
 
+  void _usePhoto(EditablePetPhoto photo) {
+    setState(() {
+      _editablePhoto = photo;
+      _colors = photo.selection.look.colors;
+      _fromPhoto = true;
+    });
+  }
+
   void _choosePreset(int i) {
     if (!mounted || !_canEdit) return;
     _photoGen++;
@@ -80,6 +91,7 @@ class _KnownDogScreenState extends State<KnownDogScreen> {
     setState(() {
       _colors = PetColors(main: p.$2, second: p.$3, marking: p.$4);
       _fromPhoto = false;
+      _editablePhoto = null;
     });
   }
 
@@ -91,23 +103,15 @@ class _KnownDogScreenState extends State<KnownDogScreen> {
         mounted && !widget.controller.isDisposed && mine == _photoGen;
     setState(() => _picking = true);
     try {
-      final file = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1200,
-        maxHeight: 1200,
-      );
-      if (!current() || file == null) return;
-      final bytes = await file.readAsBytes();
+      final bytes = await pickPetPhotoBytes(current);
+      if (!current() || bytes == null) return;
+      final source = await compute(preparePetPhoto, bytes);
       if (!current()) return;
-      final colors = extractPetColors(bytes);
-      if (colors == null) {
+      if (source == null) {
         _snack('사진을 읽지 못했어요. 다른 사진으로 해볼까요?');
         return;
       }
-      setState(() {
-        _colors = colors;
-        _fromPhoto = true;
-      });
+      _usePhoto(centerPetPhoto(source));
     } on PlatformException {
       if (current()) _snack('사진을 열지 못했어요. 다시 골라 볼까요?');
     } on FileSystemException {
@@ -236,6 +240,23 @@ class _KnownDogScreenState extends State<KnownDogScreen> {
             icon: const Icon(Icons.photo_outlined),
             label: Text(_picking ? '읽는 중…' : '사진에서 털색 뽑기'),
           ),
+          if (_editablePhoto case final photo?)
+            PhotoFrameButton(
+              shape: _shape,
+              stage: _puppy ? PetStage.puppy : PetStage.adult,
+              photo: photo,
+              onApply: _picking || !_canEdit
+                  ? null
+                  : (next) {
+                      if (_canEdit &&
+                          identical(
+                            _editablePhoto?.source.pixels,
+                            next.source.pixels,
+                          )) {
+                        _usePhoto(next);
+                      }
+                    },
+            ),
           const SizedBox(height: 12),
           Text('또는 색 고르기', style: label),
           const SizedBox(height: 8),

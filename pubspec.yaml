@@ -12,6 +12,7 @@ dependencies:
   flame: ^1.35.1
   drift: ^2.34.4
   drift_flutter: ^0.3.1
+  sqlite3: ^3.5.2
   http: ^1.6.0
   speech_to_text: ^7.4.0
   flutter_secure_storage: ^11.2.0

@@ -432,6 +432,39 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> savePet(Pet pet) => update(pets).replace(pet);
 
+  /// 게임 상태의 오래된 스냅샷이 별도로 확정한 사진과 털색을 되돌리지 않게 한다.
+  Future<void> savePetState(Pet pet) async {
+    final fields = pet
+        .toCompanion(false)
+        .copyWith(
+          id: const Value.absent(),
+          furMain: const Value.absent(),
+          furSecond: const Value.absent(),
+          marking: const Value.absent(),
+          portraitPath: const Value.absent(),
+        );
+    await (update(pets)..where((p) => p.id.equals(pet.id))).write(fields);
+  }
+
+  Future<bool> saveAppearance(
+    int id,
+    int main,
+    int second,
+    int marking,
+    String? portrait,
+  ) async =>
+      await (update(pets)..where((p) => p.id.equals(id))).write(
+        PetsCompanion(
+          furMain: Value(main),
+          furSecond: Value(second),
+          marking: Value(marking),
+          portraitPath: portrait == null
+              ? const Value.absent()
+              : Value(portrait),
+        ),
+      ) ==
+      1;
+
   Future<int> addMemory(String content, DateTime at, {int? heardEventId}) =>
       into(memories).insert(
         MemoriesCompanion.insert(

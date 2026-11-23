@@ -117,6 +117,7 @@ class PetSpritePreview extends StatefulWidget {
     this.dimension = 96,
     this.sitting = false,
     this.accent = defaultAccent,
+    this.onRendered,
   });
 
   final String shape;
@@ -125,6 +126,9 @@ class PetSpritePreview extends StatefulWidget {
   final double dimension;
   final bool sitting;
   final int accent;
+
+  /// 현재 요청의 그림 또는 대체 표시를 한 프레임 그린 뒤 알려 준다.
+  final ValueChanged<bool>? onRendered;
 
   @override
   State<PetSpritePreview> createState() => _PetSpritePreviewState();
@@ -184,7 +188,13 @@ class _PetSpritePreviewState extends State<PetSpritePreview> {
       setState(() => _image = image);
     } catch (_) {
       if (identical(_sheets[asset], loading)) _sheets.remove(asset);
-      if (mounted && mine == _request) setState(() => _failed = true);
+      if (!mounted || mine != _request) return;
+      setState(() => _failed = true);
+    }
+    if (widget.onRendered != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && mine == _request) widget.onRendered?.call(!_failed);
+      });
     }
   }
 

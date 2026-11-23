@@ -162,6 +162,50 @@ void main() {
     expect(await tester.runAsync(() => db.loadKnownDogs()), isEmpty);
   });
 
+  testWidgets('아는 강아지 사진을 취소하면 그대로 두고 고른 영역의 색은 친구 수첩에 저장한다', (tester) async {
+    await mount(tester);
+    final fixture = File(
+      'tools/scene_preview/fixtures/synthetic-beagle.jpg',
+    ).absolute;
+    messenger.setMockMethodCallHandler(_picker, (_) async => fixture.path);
+    await invoke(tester, pick(tester));
+    final edit = find.text('얼굴 위치 맞추기');
+    for (var i = 0; i < 12 && edit.evaluate().isEmpty; i++) {
+      await drain(tester);
+    }
+    await tester.tap(edit);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(find.byType(KnownDogScreen), findsOneWidget);
+    await tester.tap(edit);
+    await tester.pumpAndSettle();
+    tester.widget<Slider>(find.byType(Slider)).onChanged!(2.0);
+    await tester.pump();
+    final box = tester.getRect(find.byKey(const ValueKey('pet-photo-frame')));
+    await tester.tapAt(
+      Offset(box.left + .78 * box.width, box.top + .44 * box.height),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+    final confirm = find.widgetWithText(FilledButton, '이 영역 사용');
+    for (
+      var i = 0;
+      i < 20 && tester.widget<FilledButton>(confirm).onPressed == null;
+      i++
+    ) {
+      await drain(tester);
+    }
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+    await invoke(tester, await save(tester));
+    final saved = (await tester.runAsync(() => db.loadKnownDogs()))!.single;
+    final main = saved.furMain;
+    expect(controller.friends[saved.id]?.name, '합성 친구');
+    expect((main >> 16) & 255, greaterThan((main & 255) + 20));
+    expect(errors, isEmpty);
+  });
+
   testWidgets('친구 사진 선택 실패 후 안내하고 다시 고른다', (tester) async {
     await mount(tester);
     var attempts = 0;

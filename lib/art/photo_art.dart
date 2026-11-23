@@ -43,13 +43,21 @@ img.Image? _decodePhoto(Uint8List bytes) {
 PetColors? extractPetColors(Uint8List bytes) {
   final decoded = _decodePhoto(bytes);
   if (decoded == null) return null;
-  const size = 64;
-  final small = img.copyResizeCropSquare(
-    img.bakeOrientation(decoded),
-    size: size,
-    interpolation: img.Interpolation.average,
-  );
+  try {
+    return _colorsFromSquare(
+      _square(
+        _pixelsOnly(img.bakeOrientation(decoded)),
+        const PhotoFrame(),
+        64,
+      ),
+    );
+  } on EmptyPhotoArea {
+    return null;
+  }
+}
 
+PetColors _colorsFromSquare(img.Image small) {
+  const size = 64;
   final samples = <_Sample>[];
   const center = size / 2, sigma = 13.0;
   for (var y = 0; y < size; y++) {
@@ -60,8 +68,23 @@ PetColors? extractPetColors(Uint8List bytes) {
       );
       if (w < 0.03) continue;
       final p = small.getPixel(x, y);
-      samples.add(_Sample(p.r.toDouble(), p.g.toDouble(), p.b.toDouble(), w));
+      if (p.a == 0) continue;
+      samples.add(
+        _Sample(p.r.toDouble(), p.g.toDouble(), p.b.toDouble(), w * p.a / 255),
+      );
     }
+  }
+
+  // 투명 스티커의 귀나 꼬리만 모서리에 걸린 경우에도 실제로 보이는 픽셀을 쓴다.
+  if (samples.isEmpty) {
+    for (final p in small) {
+      if (p.a > 0) {
+        samples.add(
+          _Sample(p.r.toDouble(), p.g.toDouble(), p.b.toDouble(), p.a / 255),
+        );
+      }
+    }
+    if (samples.isEmpty) throw const EmptyPhotoArea();
   }
 
   // 실내 사진은 어둡게 찍혀 흰 털이 회색으로 나온다. 밝은 쪽 5%가 거의 흰색이 되도록 밝기를 맞춘다.
@@ -165,18 +188,243 @@ double _bright(int c) =>
 Uint8List? pixelPortraitPng(Uint8List bytes, {int size = 64}) {
   final decoded = _decodePhoto(bytes);
   if (decoded == null) return null;
-  final square = img.copyResizeCropSquare(
-    img.bakeOrientation(decoded),
-    size: size,
-    interpolation: img.Interpolation.average,
+  final patch = _square(
+    _pixelsOnly(img.bakeOrientation(decoded)),
+    const PhotoFrame(),
+    size,
   );
+  if (!patch.any((p) => p.a > 0)) return null;
+  return _portraitFromSquare(patch);
+}
+
+class EmptyPhotoArea implements Exception {
+  const EmptyPhotoArea();
+}
+
+Uint8List _portraitFromSquare(img.Image square) {
+  // 16색 양자화는 알파를 저장하지 않으므로 보이는 색만 앱 종이 위에 합성한다.
+  final paper = _pixelsOnly(square);
+  for (final pixel in paper) {
+    final opacity = pixel.a / 255;
+    if (opacity == 1) continue;
+    int mix(num value, int base) =>
+        (value * opacity + base * (1 - opacity)).round();
+    pixel.setRgba(mix(pixel.r, 251), mix(pixel.g, 247), mix(pixel.b, 239), 255);
+  }
   return img.encodePng(
     img.quantize(
-      square,
+      paper,
       numberOfColors: 16,
       method: img.QuantizeMethod.neuralNet,
     ),
   );
+}
+
+img.Image _pixelsOnly(img.Image source) {
+  final rgba = source.convert(
+    format: img.Format.uint8,
+    numChannels: 4,
+    withPalette: false,
+    noAnimation: true,
+  );
+  final data = rgba.getBytes(order: img.ChannelOrder.rgba);
+  for (var i = 0; i < data.length; i += 4) {
+    if (data[i + 3] == 0) data[i] = data[i + 1] = data[i + 2] = 0;
+  }
+  return img.Image.fromBytes(
+    width: rgba.width,
+    height: rgba.height,
+    bytes: data.buffer,
+    bytesOffset: data.offsetInBytes,
+    numChannels: 4,
+    order: img.ChannelOrder.rgba,
+  );
+}
+
+/// 원본을 기기에 저장하지 않고 편집할 작은 사진과 중앙의 초기 결과를 만든다.
+/// 호출부는 이미지 디코딩·양자화를 별도 isolate에서 실행한다.
+typedef PetPhotoLook = ({PetColors colors, Uint8List portrait});
+typedef PreparedPetPhoto = ({
+  Uint8List pixels,
+  int width,
+  int height,
+  PetPhotoLook initial,
+  PhotoFrame initialFrame,
+});
+typedef PetPhotoSelection = ({PhotoFrame frame, PetPhotoLook look});
+
+typedef EditablePetPhoto = ({
+  PreparedPetPhoto source,
+  PetPhotoSelection selection,
+});
+
+EditablePetPhoto centerPetPhoto(PreparedPetPhoto photo) => (
+  source: photo,
+  selection: (frame: photo.initialFrame, look: photo.initial),
+);
+
+class PhotoFrame {
+  const PhotoFrame({this.x = .5, this.y = .5, this.zoom = 1});
+  final double x;
+  final double y;
+  final double zoom;
+
+  ({int left, int top, int side}) square(int width, int height) {
+    final side = max(1, (min(width, height) / zoom.clamp(1.0, 3.0)).round());
+    return (
+      left: (x * width - side / 2).round().clamp(0, width - side),
+      top: (y * height - side / 2).round().clamp(0, height - side),
+      side: side,
+    );
+  }
+
+  PhotoFrame fitted(int width, int height) {
+    final r = square(width, height);
+    return PhotoFrame(
+      x: (r.left + r.side / 2) / width,
+      y: (r.top + r.side / 2) / height,
+      zoom: zoom.clamp(1.0, 3.0),
+    );
+  }
+}
+
+img.Image _square(img.Image source, PhotoFrame frame, int size) {
+  final r = frame.square(source.width, source.height);
+  final crop = img.copyCrop(
+    source,
+    x: r.left,
+    y: r.top,
+    width: r.side,
+    height: r.side,
+  );
+  return _resizePhoto(crop, size, size);
+}
+
+/// 투명한 배경을 섞을 때 보이는 색의 합을 알파의 합으로 나눈다.
+img.Image _resizePhoto(img.Image source, int width, int height) {
+  if (source.width == width && source.height == height) return source;
+  if (!source.any((p) => p.a != 255)) {
+    return img.copyResize(
+      source,
+      width: width,
+      height: height,
+      interpolation: img.Interpolation.average,
+    );
+  }
+  final pixels = source.getBytes(order: img.ChannelOrder.rgba);
+  final resized = img.Image(width: width, height: height, numChannels: 4);
+  for (var y = 0; y < height; ++y) {
+    final top = y * source.height ~/ height;
+    final bottom = max(top + 1, (y + 1) * source.height ~/ height);
+    for (var x = 0; x < width; ++x) {
+      final left = x * source.width ~/ width;
+      final right = max(left + 1, (x + 1) * source.width ~/ width);
+      int alphaSum = 0, redSum = 0, greenSum = 0, blueSum = 0;
+      for (var row = top; row < bottom; row++) {
+        for (var col = left; col < right; col++) {
+          final offset = 4 * (row * source.width + col);
+          final a = pixels[offset + 3];
+          alphaSum += a;
+          redSum += pixels[offset] * a;
+          greenSum += pixels[offset + 1] * a;
+          blueSum += pixels[offset + 2] * a;
+        }
+      }
+      final count = (right - left) * (bottom - top);
+      final alpha = (alphaSum / count).round();
+      if (alpha > 0) {
+        resized.setPixelRgba(
+          x,
+          y,
+          (redSum / alphaSum).round(),
+          (greenSum / alphaSum).round(),
+          (blueSum / alphaSum).round(),
+          alpha,
+        );
+      }
+    }
+  }
+  return resized;
+}
+
+/// 초기 정사각형은 짧은 변을 전부 쓰므로 긴 변 한 축에서만 보이는 면적을 비교한다.
+PhotoFrame? _visibleFrame(img.Image photo) {
+  final horizontal = photo.width >= photo.height;
+  final length = max(photo.width, photo.height);
+  final side = min(photo.width, photo.height);
+  final opacity = Uint32List(length);
+  for (final p in photo) {
+    opacity[horizontal ? p.x : p.y] += p.a.toInt();
+  }
+  int sum = 0, best = 0, bestStart = 0;
+  for (var index = 0; index < length; index++) {
+    sum += opacity[index];
+    if (index >= side) sum -= opacity[index - side];
+    if (index < side - 1 || sum == 0) continue;
+    final start = index - side + 1;
+    if (sum > best ||
+        (sum == best &&
+            (2 * start + side - length).abs() <
+                (2 * bestStart + side - length).abs())) {
+      best = sum;
+      bestStart = start;
+    }
+  }
+  if (best == 0) return null;
+  final center = (bestStart + side / 2) / length;
+  return PhotoFrame(
+    x: horizontal ? center : 0.5,
+    y: horizontal ? 0.5 : center,
+  ).fitted(photo.width, photo.height);
+}
+
+PetPhotoLook _look(img.Image source, PhotoFrame frame) {
+  final patch = _square(source, frame, 64);
+  return (
+    colors: _colorsFromSquare(patch),
+    portrait: _portraitFromSquare(patch),
+  );
+}
+
+PreparedPetPhoto? preparePetPhoto(Uint8List bytes) {
+  final decoded = _decodePhoto(bytes);
+  if (decoded == null) return null;
+  final upright = _pixelsOnly(img.bakeOrientation(decoded));
+  final scale = min(1.0, 768 / max(upright.width, upright.height));
+  final preview = scale == 1
+      ? upright
+      : _resizePhoto(
+          upright,
+          max(1, (upright.width * scale).round()),
+          max(1, (upright.height * scale).round()),
+        );
+  var frame = const PhotoFrame();
+  PetPhotoLook initial;
+  try {
+    initial = _look(preview, frame);
+  } on EmptyPhotoArea {
+    final visible = _visibleFrame(preview);
+    if (visible == null) return null;
+    frame = visible;
+    try {
+      initial = _look(preview, frame);
+    } on EmptyPhotoArea {
+      return null;
+    }
+  }
+  return (
+    pixels: img.encodePng(preview),
+    width: preview.width,
+    height: preview.height,
+    initial: initial,
+    initialFrame: frame,
+  );
+}
+
+PetPhotoLook renderPetPhoto(({Uint8List pixels, PhotoFrame frame}) input) {
+  // pixels는 preparePetPhoto가 새로 인코딩한 작은 PNG다.
+  final preview = img.decodePng(input.pixels)!;
+  return _look(preview, input.frame);
 }
 
 class _Sample {

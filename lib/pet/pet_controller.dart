@@ -579,7 +579,7 @@ class PetController extends ChangeNotifier {
     final pet = _pet;
     await _db.transaction(() async {
       await _db.addCarried(item.id, FindSource.hidden, now, gift: true);
-      await _db.savePet(pet);
+      await _db.savePetState(pet);
     });
     carried = await _db.allCarried();
     notifyListeners();
@@ -1486,20 +1486,45 @@ class PetController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 털색을 사진에서 다시 뽑았다. 초상화도 같이 바꾼다. 기억·일기·상태는 그대로.
-  void changeColors(PetColors colors, {String? portraitPath}) {
-    _pet = _pet.copyWith(
-      furMain: colors.main,
-      furSecond: colors.second,
-      marking: colors.marking,
-      portraitPath: portraitPath == null
-          ? const Value.absent()
-          : Value(portraitPath),
-    );
-    spriteVersion++;
-    Telemetry.track('recolor', {'portrait': portraitPath != null});
-    _save(_clock());
-    notifyListeners();
+  Future<void> _appearanceWrites = Future.value();
+
+  /// 파일과 DB가 연결된 뒤에만 외모를 바꾼다. 직전 초상화 경로로 사용을 마친 파일을 찾는다.
+  Future<({String? previousPortrait})?> changeColors(
+    PetColors colors, {
+    String? portraitPath,
+  }) {
+    if (_disposed || _resetPending) return Future.value(null);
+    final operation = _appearanceWrites.then<({String? previousPortrait})?>((
+      _,
+    ) async {
+      final previousPortrait = _pet.portraitPath;
+      try {
+        final written = await _db.saveAppearance(
+          _pet.id,
+          colors.main,
+          colors.second,
+          colors.marking,
+          portraitPath,
+        );
+        if (!written) return null;
+      } catch (_) {
+        return null;
+      }
+      _pet = _pet.copyWith(
+        furMain: colors.main,
+        furSecond: colors.second,
+        marking: colors.marking,
+        portraitPath: portraitPath == null
+            ? const Value.absent()
+            : Value(portraitPath),
+      );
+      spriteVersion++;
+      Telemetry.track('recolor', {'portrait': portraitPath != null});
+      if (!_disposed && !_resetPending) notifyListeners();
+      return (previousPortrait: previousPortrait);
+    });
+    _appearanceWrites = operation.then((_) {});
+    return _tracked(operation);
   }
 
   Future<void> place(String slotId, String? itemId) =>
@@ -1653,7 +1678,7 @@ class PetController extends ChangeNotifier {
       if (!save) {
         // 동시에 열린 요청도 마지막 한 번을 함께 쓰지 않도록 await 전에 예약한다.
         _pet = _pet.copyWith(talksToday: _pet.talksToday + 1);
-        await _db.savePet(_pet);
+        await _db.savePetState(_pet);
       }
       final lines = events
           .map((e) => '- ${_hhmm(e.at)} ${e.detail}')
@@ -3810,7 +3835,7 @@ class PetController extends ChangeNotifier {
     if (!_canTalk()) return false;
     _pet = _pet.copyWith(talksToday: _pet.talksToday + 1);
     // 기억을 읽는 동안 화면이 꺼졌을 수 있다. 횟수를 적으며 마지막 방문 시각을 밀지 않는다.
-    _background(_db.savePet(_pet));
+    _background(_db.savePetState(_pet));
     return true;
   }
 
@@ -4713,7 +4738,7 @@ class PetController extends ChangeNotifier {
       activity: Value(traits.activity),
       attachment: Value(traits.attachment),
     );
-    _background(_db.savePet(_pet));
+    _background(_db.savePetState(_pet));
   }
 
   @override

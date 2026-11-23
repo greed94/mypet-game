@@ -26,7 +26,7 @@ class ShapePicker extends StatelessWidget {
 
   /// 위젯 테스트는 테스트마다 시계(zone)가 따로라, 앞 테스트에서 시작한 시트 읽기가 끝나지 않은 채 남는다.
   @visibleForTesting
-  static void resetCache() => _ThumbState._sheets.clear();
+  static void resetCache() => _PetSpritePreviewState._sheets.clear();
 
   final PetColors colors;
   final String selected;
@@ -92,7 +92,7 @@ class _ShapeCard extends StatelessWidget {
           ),
           child: Column(
             children: [
-              _Thumb(shape: shape.id, colors: colors, stage: stage),
+              PetSpritePreview(shape: shape.id, colors: colors, stage: stage),
               const SizedBox(height: 6),
               Text(
                 shape.examples,
@@ -107,27 +107,41 @@ class _ShapeCard extends StatelessWidget {
   }
 }
 
-class _Thumb extends StatefulWidget {
-  const _Thumb({
+/// 집에 나올 강아지의 실제 시트와 선택한 털색을 보여 준다.
+class PetSpritePreview extends StatefulWidget {
+  const PetSpritePreview({
+    super.key,
     required this.shape,
     required this.colors,
     required this.stage,
+    this.dimension = 96,
+    this.sitting = false,
   });
 
   final String shape;
   final PetColors colors;
   final PetStage stage;
+  final double dimension;
+  final bool sitting;
 
   @override
-  State<_Thumb> createState() => _ThumbState();
+  State<PetSpritePreview> createState() => _PetSpritePreviewState();
 }
 
-class _ThumbState extends State<_Thumb> {
+class _PetSpritePreviewState extends State<PetSpritePreview> {
   static final _sheets = <String, Future<ui.Image>>{};
-  late Future<ui.Image> _image = _paint();
+  ui.Image? _image;
+  int _request = 0;
+  bool _failed = false;
 
   @override
-  void didUpdateWidget(_Thumb old) {
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(PetSpritePreview old) {
     super.didUpdateWidget(old);
     final c = widget.colors, o = old.colors;
     if (widget.shape != old.shape ||
@@ -135,49 +149,80 @@ class _ThumbState extends State<_Thumb> {
         c.main != o.main ||
         c.second != o.second ||
         c.marking != o.marking) {
-      _image = _paint();
+      _load();
     }
   }
 
-  Future<ui.Image> _paint() async {
-    final asset = 'assets/${spriteAsset(widget.shape, widget.stage)}';
-    final sheet = await (_sheets[asset] ??= _decode(asset));
+  Future<void> _load() async {
+    final mine = ++_request;
+    final previous = _image;
+    _image = null;
+    _failed = false;
+    if (previous != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => previous.dispose());
+    }
     final c = widget.colors;
-    final (image, _) = await paintSheet(
-      sheet,
-      main: c.main,
-      second: c.second,
-      accent: defaultAccent,
-      marking: c.marking,
-    );
-    return image;
+    final asset = 'assets/${spriteAsset(widget.shape, widget.stage)}';
+    final loading = _sheets[asset] ??= _decode(asset);
+    try {
+      final sheet = await loading;
+      if (!mounted || mine != _request) return;
+      final (image, _) = await paintSheet(
+        sheet,
+        main: c.main,
+        second: c.second,
+        accent: defaultAccent,
+        marking: c.marking,
+      );
+      if (!mounted || mine != _request) {
+        image.dispose();
+        return;
+      }
+      setState(() => _image = image);
+    } catch (_) {
+      if (identical(_sheets[asset], loading)) _sheets.remove(asset);
+      if (mounted && mine == _request) setState(() => _failed = true);
+    }
   }
 
   static Future<ui.Image> _decode(String asset) async {
     final data = await rootBundle.load(asset);
-    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
-    return (await codec.getNextFrame()).image;
+    final codec = await ui.instantiateImageCodec(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+    );
+    try {
+      return (await codec.getNextFrame()).image;
+    } finally {
+      codec.dispose();
+    }
+  }
+
+  @override
+  void dispose() {
+    _image?.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final image = _image;
     return SizedBox.square(
-      dimension: 96,
-      child: FutureBuilder<ui.Image>(
-        future: _image,
-        builder: (context, snap) => snap.data == null
-            ? const SizedBox()
-            : CustomPaint(painter: _FramePainter(snap.data!)),
-      ),
+      dimension: widget.dimension,
+      child: _failed
+          ? const Icon(Icons.pets_outlined, semanticLabel: '모습을 불러오지 못했어요')
+          : image == null
+          ? null
+          : CustomPaint(painter: _FramePainter(image, widget.sitting)),
     );
   }
 }
 
-/// 시트의 첫 칸(서 있는 모습)만 정수배로 키워 그린다.
+/// 서 있거나 앉은 첫 프레임을 정수배로 그린다.
 class _FramePainter extends CustomPainter {
-  _FramePainter(this.sheet);
+  _FramePainter(this.sheet, this.sitting);
 
   final ui.Image sheet;
+  final bool sitting;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -192,12 +237,13 @@ class _FramePainter extends CustomPainter {
     );
     canvas.drawImageRect(
       sheet,
-      const Rect.fromLTWH(0, 0, frame, frame),
+      Rect.fromLTWH(0, sitting ? 6 * frame : 0, frame, frame),
       dst,
       Paint()..filterQuality = FilterQuality.none,
     );
   }
 
   @override
-  bool shouldRepaint(_FramePainter old) => old.sheet != sheet;
+  bool shouldRepaint(_FramePainter old) =>
+      old.sheet != sheet || old.sitting != sitting;
 }

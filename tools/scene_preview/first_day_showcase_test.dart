@@ -107,7 +107,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, '이름'), '보리');
-    await tester.pump();
+    await drain();
     await record('보리와 처음 만나는 밤', 22);
     await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
     await tester.pumpAndSettle();

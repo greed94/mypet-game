@@ -9,9 +9,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:image/image.dart' as img;
+import 'package:mypet/art/photo_art.dart';
 import 'package:mypet/data/database.dart';
+import 'package:mypet/pet/pet_rules.dart';
 import 'package:mypet/services/weather.dart';
 import 'package:mypet/ui/c3/c3_theme.dart';
+import 'package:mypet/ui/c3/polaroid.dart';
 import 'package:mypet/ui/onboarding_screen.dart';
 import 'package:mypet/ui/shape_picker.dart';
 
@@ -86,6 +89,144 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('어디에 살아요?'), findsOneWidget);
   }
+
+  testWidgets('고른 모양·털과 성장 단계가 입양 사진에 보이고 뒤로 가도 이름을 유지한다', (tester) async {
+    await mount(tester);
+    await tester.tap(find.widgetWithText(ChoiceChip, '갈색'));
+    await tester.pump();
+    await tester.tap(find.text('시바·진돗개·스피츠'));
+    await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
+    await tester.pumpAndSettle();
+    final portrait = find.byType(Polaroid);
+    PetSpritePreview dog() => tester.widget<PetSpritePreview>(
+      find.descendant(of: portrait, matching: find.byType(PetSpritePreview)),
+    );
+    expect(dog().shape, 'shiba');
+    expect(dog().colors.main, furPresets[1].$2);
+    expect(dog().stage, PetStage.puppy);
+    await drain(tester);
+    final paintedDog = find.descendant(
+      of: find.descendant(
+        of: portrait,
+        matching: find.byType(PetSpritePreview),
+      ),
+      matching: find.byType(CustomPaint),
+    );
+    final puppyPainter = tester.widget<CustomPaint>(paintedDog).painter!;
+    final input = find.widgetWithText(TextField, '이름');
+    await tester.enterText(input, '초코');
+    await tester.pump();
+    expect(tester.widget<Polaroid>(portrait).caption, '초코');
+    await tester.tap(find.text('지금 모습 그대로').hitTestable());
+    await tester.pump();
+    expect(dog().stage, PetStage.adult);
+    if (paintedDog.evaluate().isNotEmpty) {
+      expect(
+        tester
+            .widget<CustomPaint>(paintedDog)
+            .painter!
+            .shouldRepaint(puppyPainter),
+        isTrue,
+      );
+    }
+    await drain(tester);
+    expect(paintedDog, findsOneWidget);
+    await tester.tap(input);
+    await tester.testTextInput.receiveAction(TextInputAction.next);
+    await tester.pumpAndSettle();
+    expect(find.text('어디에 살아요?'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(input).controller!.text, '초코');
+    expect(dog().stage, PetStage.adult);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('어떤 아이인가요?'), findsOneWidget);
+    expect(
+      tester.widget<ShapePicker>(find.byType(ShapePicker)).selected,
+      'shiba',
+    );
+  });
+
+  testWidgets('키보드가 올라온 짧은 화면에서도 다음과 동네 건너뛰기에 닿는다', (tester) async {
+    await mount(tester);
+    tester.view.physicalSize = const Size(320, 520);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(ChoiceChip, '갈색').hitTestable());
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '이름'), '두부');
+    tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+    await tester.pump();
+    final next = find.widgetWithText(FilledButton, '다음').hitTestable();
+    expect(tester.getBottomRight(next).dy, lessThanOrEqualTo(240));
+    await tester.tap(next);
+    await tester.pumpAndSettle();
+    expect(find.text('건너뛰고 시작').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('동네를 떠난 뒤 도착한 검색 실패를 이름 화면에 띄우지 않는다', (tester) async {
+    final result = (await tester.runAsync(
+      () async => Completer<http.Response>(),
+    ))!;
+    await mount(tester, client: MockClient((_) => result.future));
+    await placePage(tester);
+    await tester.enterText(find.widgetWithText(TextField, '동네 이름'), 'alpha');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      result.complete(http.Response('unavailable', 503));
+      await pumpEventQueue();
+    });
+    await drain(tester);
+    expect(find.text('이름을 지어 주세요'), findsOneWidget);
+    expect(find.text('찾지 못했어요. 시·구 이름으로 다시 해볼까요?'), findsNothing);
+    await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<IconButton>(find.byType(IconButton)).onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets('사진 응답이 이름 화면에 늦게 도착해도 선택한 털색을 유지한다', (tester) async {
+    await mount(tester);
+    await tester.tap(find.widgetWithText(ChoiceChip, '갈색'));
+    await tester.pump();
+    final picked = (await tester.runAsync(() async => Completer<String?>()))!;
+    messenger.setMockMethodCallHandler(picker, (_) => picked.future);
+    final choosePhoto = tester
+        .widget<FilledButton>(
+          find.ancestor(
+            of: find.text('사진으로 만들기'),
+            matching: find.byWidgetPredicate((w) => w is FilledButton),
+          ),
+        )
+        .onPressed!;
+    await tester.runAsync(() async {
+      choosePhoto();
+      await pumpEventQueue();
+    });
+    await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      picked.complete(photo.path);
+      await pumpEventQueue();
+    });
+    await drain(tester);
+    final dog = tester.widget<PetSpritePreview>(
+      find.descendant(
+        of: find.byType(Polaroid),
+        matching: find.byType(PetSpritePreview),
+      ),
+    );
+    expect(dog.colors.main, furPresets[1].$2);
+    expect(find.text('이름을 지어 주세요'), findsOneWidget);
+  });
 
   Future<void> pick(WidgetTester tester, List<Object> errors) async {
     final action = tester

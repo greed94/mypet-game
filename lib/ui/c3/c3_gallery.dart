@@ -7,6 +7,7 @@ import 'memo_input.dart';
 import 'paper.dart';
 import 'pixel_icon.dart';
 import 'polaroid.dart';
+import 'room_backdrop.dart';
 import 'stamp_button.dart';
 import 'sticker_button.dart';
 import 'sticker_card.dart';
@@ -522,39 +523,12 @@ class _RoomPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height;
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = const Color(0xFFF7E5D6),
+    paintRoomBackdrop(
+      canvas,
+      size,
+      floorY: size.height - 118,
+      rug: Rect.fromLTWH(size.width / 2 - 108, size.height - 72, 216, 58),
     );
-    final seam = Paint()..color = const Color(0xFFF2DCCA);
-    for (var x = 22.0; x < w; x += 24) {
-      canvas.drawRect(Rect.fromLTWH(x, 0, 2, h), seam);
-    }
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, w, 8),
-      Paint()..color = const Color(0xFFEDD2BD),
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(0, h - 118, w, 118),
-      Paint()..color = const Color(0xFFEED5B7),
-    );
-    final plank = Paint()..color = const Color(0xFFE3C4A2);
-    for (var y = h - 118 + 22; y < h; y += 24) {
-      canvas.drawRect(Rect.fromLTWH(0, y, w, 2), plank);
-    }
-    canvas.drawRect(
-      Rect.fromLTWH(0, h - 130, w, 12),
-      Paint()..color = const Color(0xFFE4C6AB),
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(0, h - 130, w, 3),
-      Paint()..color = const Color(0xFFD6B393),
-    );
-    final rug = Rect.fromLTWH(w / 2 - 108, h - 72, 216, 58);
-    canvas.drawOval(rug, Paint()..color = const Color(0xFFC9BCEC));
-    canvas.drawOval(rug.deflate(5), Paint()..color = const Color(0xFFE4DCF8));
-    canvas.drawOval(rug.deflate(12), Paint()..color = const Color(0xFFD6CBF3));
     paintThoughtCloud(canvas, cloud, tail, aiTag: true);
   }
 

@@ -160,6 +160,17 @@ void main() {
   Future<int> count(WidgetTester tester) async =>
       (await tester.runAsync(() => db.select(db.pets).get()))!.length;
 
+  testWidgets('이전으로 돌아가는 첫 프레임의 시작 콜백은 펫을 저장하지 않는다', (tester) async {
+    await mount(tester);
+    final previousStart = await start(tester);
+    await tester.binding.handlePopRoute();
+    await invoke(tester, previousStart);
+    await tester.pumpAndSettle();
+    expect(await count(tester), 0);
+    expect(delivered, isEmpty);
+    expect(find.text('이름을 지어 주세요'), findsOneWidget);
+  });
+
   testWidgets('생성 콜백을 연속 호출해도 펫과 권한 요청은 하나다', (tester) async {
     await mount(tester, reminders: true);
     final permission = (await tester.runAsync(() async => Completer<bool>()))!;
@@ -272,6 +283,8 @@ void main() {
     final portrait = File(pet.portraitPath!);
     final beforeBytes = portrait.readAsBytesSync();
     expect(find.text('펫은 저장됐어요. 시작을 다시 눌러 주세요.'), findsOneWidget);
+    final route = ModalRoute.of(tester.element(find.byType(OnboardingScreen)))!;
+    expect(route.popDisposition, isNot(RoutePopDisposition.doNotPop));
     expect(find.widgetWithText(TextButton, '이전').hitTestable(), findsNothing);
     expect(
       tester.widget<TextField>(find.widgetWithText(TextField, '동네 이름')).enabled,

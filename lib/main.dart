@@ -238,9 +238,10 @@ class _MypetAppState extends State<MypetApp> {
       await _switchTo(on);
     } catch (_) {
       if (mounted) {
-        _messages.currentState?.showSnackBar(
-          const SnackBar(content: Text('펫을 바꾸지 못했어요. 다시 시도해 주세요.')),
-        );
+        final message = _controller?.hasUnsavedRecognition == true
+            ? '재회 기록을 저장하지 못해 지금 펫을 열어 뒀어요. 다시 시도해 주세요.'
+            : '펫을 바꾸지 못했어요. 다시 시도해 주세요.';
+        _messages.currentState?.showSnackBar(SnackBar(content: Text(message)));
       }
     } finally {
       if (mounted) setState(() => _switching = false);
@@ -254,6 +255,7 @@ class _MypetAppState extends State<MypetApp> {
     AppDatabase? nextDb;
     try {
       await old?.prepareReset();
+      if (old?.hasUnsavedRecognition ?? false) throw StateError('재회 기록 저장 대기');
       if (old != null && old.unsavedWalkCount > 0) {
         old.cancelReset();
         if (!await old.retryWalkRecords()) throw StateError('산책 기록 저장 대기');

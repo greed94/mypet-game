@@ -18,6 +18,8 @@ void main() {
       final after = tz.TZDateTime(coast, 2026, month, day, 5, 30);
       expect(dayKey(petDate(before)), dayKey(DateTime(2026, month, day - 1)));
       expect(dayKey(petDate(after)), dayKey(DateTime(2026, month, day)));
+      expect(daysTogether(before, after), 2);
+      expect(daysTogether(after, before), 1);
       final date = petDate(before);
       tz.TZDateTime inCoast(DateTime d) =>
           tz.TZDateTime(coast, d.year, d.month, d.day, d.hour);

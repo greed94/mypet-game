@@ -251,9 +251,35 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('화면 읽기의 실행 동작으로 밥을 주고 도감 탭을 열 수 있다', (tester) async {
+  testWidgets('Tab으로 강아지에게 가서 Enter와 Space로 쓰다듬는다', (tester) async {
     final home = await make(tester);
     await mount(tester, home);
+    for (
+      var i = 0;
+      i < 24 && FocusManager.instance.primaryFocus?.debugLabel != '강아지 쓰다듬기';
+      i++
+    ) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+    }
+    expect(FocusManager.instance.primaryFocus?.debugLabel, '강아지 쓰다듬기');
+    for (final key in [LogicalKeyboardKey.enter, LogicalKeyboardKey.space]) {
+      final care = home.c.careScore;
+      await tester.sendKeyEvent(key);
+      await tester.pump();
+      expect(home.c.careScore, greaterThan(care));
+      home.now = home.now.add(const Duration(seconds: 5));
+    }
+  });
+
+  testWidgets('화면 읽기의 실행 동작으로 쓰다듬고 밥을 주고 도감 탭을 연다', (tester) async {
+    final home = await make(tester);
+    await mount(tester, home);
+    final before = home.c.careScore;
+    final label = home.c.bubble == null ? '콩이 쓰다듬기' : '콩이의 속마음';
+    tester.semantics.tap(find.semantics.byLabel(label));
+    await tester.pump();
+    expect(home.c.careScore, greaterThan(before));
     final hunger = home.c.stats.hunger;
     tester.semantics.tap(find.semantics.byLabel('밥 주기'));
     await tester.pump();
@@ -796,10 +822,12 @@ void main() {
     });
     await drainPermission(tester);
     expect(find.byType(Dialog), findsOneWidget);
+    expect(home.c.uiBusy, isTrue);
     await tester.tap(find.text('나중에'));
     await tester.pump(const Duration(milliseconds: 350));
     await drainPermission(tester);
     expect(find.byType(Dialog), findsNothing);
+    expect(home.c.uiBusy, isFalse);
   });
 
   testWidgets('권한 상태 조회 중 아침 일기를 열면 집으로 돌아온 뒤 걸음 안내를 보여 준다', (tester) async {
@@ -870,6 +898,7 @@ void main() {
     await tester.tap(find.text('좋아요'));
     await tester.pump(const Duration(milliseconds: 300));
     expect(storage.writes, 1);
+    expect(home.c.uiBusy, isFalse);
     await tester.runAsync(() => tester.pumpWidget(const SizedBox()));
     await tester.runAsync(() async {
       storage.release.complete();

@@ -194,6 +194,16 @@ DateTime petDate(DateTime t) {
 DateTime petDayStart(DateTime day, {int offsetDays = 0}) =>
     DateTime(day.year, day.month, day.day + offsetDays, dayStartHour);
 
+/// 첫날을 1로 세고, 현지 새벽 5시를 지날 때마다 함께한 날이 바뀐다.
+int daysTogether(DateTime adopted, DateTime now) {
+  DateTime calendarDay(DateTime time) {
+    final day = petDate(time);
+    return DateTime.utc(day.year, day.month, day.day);
+  }
+
+  return max(1, calendarDay(now).difference(calendarDay(adopted)).inDays + 1);
+}
+
 String dayKey(DateTime t) =>
     '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
 

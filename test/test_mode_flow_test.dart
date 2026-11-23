@@ -214,6 +214,56 @@ void main() {
     expect(saved!.offset, session.mode.offset);
   });
 
+  testWidgets('이미 보여 준 재회를 저장하기 전에는 현재 펫을 지키고 저장 후 전환한다', (tester) async {
+    final session = await mount(tester, savedOffset: const Duration(days: 1));
+    final old = session.home.controller;
+    final db = session.home.db;
+    await tester.runAsync(() async {
+      await old.settled;
+      final met = old.pet.bornAt;
+      await db.queueFirstMeeting(met);
+      await db.beginFirstMeeting(met);
+      await db.customStatement('PRAGMA foreign_keys = ON');
+      await db.customStatement(
+        'CREATE TABLE synthetic_parent (id INTEGER PRIMARY KEY)',
+      );
+      await db.customStatement(
+        'CREATE TABLE synthetic_child (parent_id INTEGER REFERENCES synthetic_parent(id) DEFERRABLE INITIALLY DEFERRED)',
+      );
+      await db.customStatement(
+        """CREATE TRIGGER fail_commit AFTER INSERT ON events
+        WHEN NEW.kind='first_recognition' BEGIN INSERT INTO synthetic_child VALUES(1); END""",
+      );
+      old.interact(Interaction.pet);
+      await old.settled;
+      expect(old.bubble, '이 냄새, 어제 처음 맡아 봤어.');
+      expect(await db.eventsOfKind('first_recognition'), isEmpty);
+      await session.leave();
+    });
+    await tester.pump();
+    expect(session.mode.on, isTrue);
+    expect(old.isDisposed, isFalse);
+    expect(
+      find.text('재회 기록을 저장하지 못해 지금 펫을 열어 뒀어요. 다시 시도해 주세요.'),
+      findsOneWidget,
+    );
+    await tester.runAsync(() async {
+      await db.customStatement('DROP TRIGGER fail_commit');
+      session.file.release.complete();
+      await session.leave();
+    });
+    await tester.pump();
+    session.active = tester.widget<HomeScreen>(find.byType(HomeScreen));
+    expect(session.mode.on, isFalse);
+    expect(old.isDisposed, isTrue);
+    expect(
+      await tester.runAsync(
+        () => session.active.db.eventsOfKind('first_recognition'),
+      ),
+      isEmpty,
+    );
+  });
+
   testWidgets('연습 펫의 미저장 산책이 남으면 지키고 복구한 뒤에만 실제 펫으로 전환한다', (tester) async {
     final session = await mount(tester);
     final old = session.home.controller;

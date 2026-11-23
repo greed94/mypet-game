@@ -36,6 +36,10 @@ import 'tricks.dart';
 import 'walk_log.dart';
 import 'wish.dart';
 
+class _PettingEnded implements Exception {
+  const _PettingEnded();
+}
+
 /// 행동 타임라인은 게임 루프의 tick(dt)로 흐르고, 상태 변화는 벽시계 기준으로 계산한다.
 class PetController extends ChangeNotifier {
   PetController(
@@ -129,6 +133,7 @@ class PetController extends ChangeNotifier {
   /// 창을 열고 닫는 것도 주인이 뭔가 한 것이라 조르기 시계를 다시 잰다.
   bool get uiBusy => _uiBusy;
   set uiBusy(bool v) {
+    if (v && !_uiBusy) _roomVisit++;
     _uiBusy = v;
     _noteOwner(changesReaction: false);
     if (!v) _showWalkFinds();
@@ -139,6 +144,7 @@ class PetController extends ChangeNotifier {
   /// 일기·도감 탭을 보는 동안(방이 안 보인다). 게임 시간은 계속 가니 조르거나 쉬가 마렵지 않게 한다.
   bool get roomHidden => _roomHidden;
   set roomHidden(bool v) {
+    if (v && !_roomHidden) _roomVisit++;
     _roomHidden = v;
     _noteOwner(changesReaction: false);
     if (!v) _showWalkFinds();
@@ -862,6 +868,12 @@ class PetController extends ChangeNotifier {
   double _remaining = 0;
   double _sinceDecay = 0;
   DateTime? _lastPetted;
+  bool _firstDayRecognized = false;
+  String? _recognitionCheckedOn;
+  int _roomVisit = 0;
+  (DateTime, String)? _unwrittenRecognition;
+  bool get hasUnsavedRecognition => _unwrittenRecognition != null;
+  bool _restoringRecognition = false;
   DateTime? _lastPetLogged;
   String? _weatherLoggedDay;
   String? _diaryCheckedDay;
@@ -939,6 +951,7 @@ class PetController extends ChangeNotifier {
     if (_disposed || _resetPending) return Greeting.none;
     _supersedeReaction();
     final now = _clock();
+    _retryRecognition();
     final fresh = _wokeAt == null;
     final meeting = firstMeeting && fresh;
     _wokeAt = now;
@@ -2423,7 +2436,7 @@ class PetController extends ChangeNotifier {
     final bond = _takeBond(1);
     stats = afterFetch(stats, bond: bond, traits: traits);
     if (bond) careScore += carePlay;
-    _background(_logOnce('play', '주인이 던진 공을 물어 왔다'));
+    _background(_logOnce('play', '주인이 던진 공을 물어 왔다', perCalendarDay: true));
     _fulfill(WishKind.ball);
     Telemetry.track('fetch', {'bond': bond, ..._statsMap()});
     _save(_clock());
@@ -3920,6 +3933,7 @@ class PetController extends ChangeNotifier {
 
   void sleepApp() {
     if (_disposed || _resetPending) return;
+    _retryRecognition();
     _supersedeReaction();
     final now = _clock();
     _applyPending(now);
@@ -4147,7 +4161,8 @@ class PetController extends ChangeNotifier {
   }
 
   void interact(Interaction interaction) {
-    if (replaying) return;
+    if (_disposed || _resetPending || replaying) return;
+    _retryRecognition();
     // 유치원 CCTV로 보는 중이라 만질 수 없다. 화면을 누르면 카메라 쪽을 쳐다본다. 친밀도는 오르지 않는다.
     if (inDaycare) {
       if (step.behavior != Behavior.sleep && step.thought != _cctvThought) {
@@ -4206,6 +4221,7 @@ class PetController extends ChangeNotifier {
         careScore += carePet;
         // 쓰다듬기는 잦아서 10분에 한 번만 일기 재료로 남긴다.
         if (_lastPetLogged == null ||
+            dayKey(_lastPetLogged!) != dayKey(now) ||
             now.difference(_lastPetLogged!) > const Duration(minutes: 10)) {
           _lastPetLogged = now;
           _log('pet', '주인이 쓰다듬어 줬다');
@@ -4264,8 +4280,137 @@ class PetController extends ChangeNotifier {
       Telemetry.track('beg_answered', {});
     }
     // 쓰다듬는 반응 뒤에 기뻐한다(위에서 계획을 비우니 그다음에).
-    if (_wishPets >= cuddleWishPets) _fulfill(WishKind.cuddle);
+    final cuddleJustCompleted =
+        _wishPets >= cuddleWishPets && openWish?.kind == WishKind.cuddle;
+    if (cuddleJustCompleted) _fulfill(WishKind.cuddle);
     _save(now);
+    if (interaction == Interaction.pet &&
+        cooledDown &&
+        r.step.behavior == Behavior.happy &&
+        !_firstDayRecognized &&
+        _canRecognizeOwner &&
+        !waitingToEat &&
+        !cuddleJustCompleted) {
+      final today = petDate(now);
+      if (today.isAfter(petDate(_pet.bornAt)) &&
+          _recognitionCheckedOn != dayKey(today)) {
+        _background(_recognizeFirstDay(now, _reactionVersion));
+      }
+    }
+  }
+
+  static const _firstDayScents = [
+    'play',
+    'walk',
+    'feed',
+    'pet',
+    'first_meeting',
+  ];
+
+  (String, String) _firstDayScent(
+    String kind,
+    DateTime happened,
+    DateTime now,
+  ) {
+    final day = dayKey(happened);
+    final when = day == dayKey(now)
+        ? (happened.hour < dayStartHour ? '새벽에' : '아까')
+        : day == dayKey(DateTime(now.year, now.month, now.day - 1))
+        ? '어제'
+        : '그때';
+    return switch (kind) {
+      'play' => ('$when 공 던져 준 그 손이다!', '$when 공을 던져 준 주인 손을 알아봤다'),
+      'walk' => ('$when 같이 산책한 주인 냄새다.', '$when 함께 산책한 주인 냄새를 알아봤다'),
+      'feed' => ('킁… $when 밥 주던 손 냄새다!', '$when 밥을 준 주인 손을 알아봤다'),
+      'pet' => ('$when 쓰다듬던 그 손이다.', '$when 쓰다듬어 준 주인 손을 알아봤다'),
+      _ => ('이 냄새, $when 처음 맡아 봤어.', '$when 처음 맡은 주인 냄새를 알아봤다'),
+    };
+  }
+
+  bool get _canRecognizeOwner =>
+      !out &&
+      !walking &&
+      !roomHidden &&
+      !uiBusy &&
+      !replaying &&
+      ball == Ball.none &&
+      !pottyUrge &&
+      !_soundAsleep;
+
+  Future<void> _recognizeFirstDay(DateTime at, int version) async {
+    final visit = _roomVisit;
+    bool stillPetting() {
+      final now = _clock();
+      final age = now.difference(at);
+      return _ownsReaction(version) &&
+          _roomVisit == visit &&
+          _canRecognizeOwner &&
+          !_firstDayRecognized &&
+          !age.isNegative &&
+          age <= const Duration(seconds: 3) &&
+          dayKey(petDate(now)) == dayKey(petDate(at));
+    }
+
+    final previousDay = petDayStart(petDate(at), offsetDays: -1);
+    Map<String, DateTime> facts;
+    try {
+      facts = await _db.firstDayCareTimes(previousDay);
+    } catch (_) {
+      return;
+    }
+    if (!stillPetting()) return;
+    final meeting = facts['first_meeting'];
+    if (facts.containsKey('first_recognition') || meeting == null) {
+      _firstDayRecognized = true;
+      return;
+    }
+    if (dayKey(petDate(meeting)) != dayKey(previousDay)) {
+      _recognitionCheckedOn = dayKey(petDate(at));
+      if (petDate(meeting).isBefore(petDate(previousDay))) {
+        _firstDayRecognized = true;
+      }
+      return;
+    }
+    final kind = _firstDayScents.firstWhere(facts.containsKey);
+    final (thought, detail) = _firstDayScent(kind, facts[kind]!, at);
+    try {
+      await _db.transaction(() async {
+        if (!stillPetting()) return;
+        if (!await _db.insertFirstRecognition(at, detail)) {
+          _firstDayRecognized = true;
+          return;
+        }
+        // 쓰는 사이 화면이 가려졌거나 다른 손길이 왔다면 이 INSERT도 함께 롤백한다.
+        if (!stillPetting()) throw const _PettingEnded();
+        _firstDayRecognized = true;
+        _unwrittenRecognition = (at, detail);
+        _say(thought, 7);
+      });
+      if (_unwrittenRecognition == (at, detail)) _unwrittenRecognition = null;
+    } on _PettingEnded {
+      return;
+    } catch (_) {
+      Telemetry.track('recognition_storage_error');
+    }
+  }
+
+  // INSERT 뒤 최종 커밋이 실패한 경우, 이미 보여 준 말은 되풀이하지 않고 기록만 복구한다.
+  void _retryRecognition() {
+    final pending = _unwrittenRecognition;
+    if (pending == null || _restoringRecognition) return;
+    _restoringRecognition = true;
+    _background(() async {
+      try {
+        await _db.transaction(
+          () => _db.insertFirstRecognition(pending.$1, pending.$2),
+        );
+        _unwrittenRecognition = null;
+      } catch (_) {
+        Telemetry.track('recognition_storage_error');
+      } finally {
+        _restoringRecognition = false;
+      }
+    }());
   }
 
   void _next() {
@@ -4526,12 +4671,26 @@ class PetController extends ChangeNotifier {
     _log(kind, detail);
   }
 
-  Future<void> _logOnce(String kind, String detail) async {
+  Future<void> _logOnce(
+    String kind,
+    String detail, {
+    bool perCalendarDay = false,
+  }) async {
     final now = _clock();
-    if (!_loggedOnce.add('${dayKey(petDate(now))} $kind $detail')) return;
+    final calendar = perCalendarDay ? dayKey(now) : '';
+    if (!_loggedOnce.add('${dayKey(petDate(now))} $calendar $kind $detail')) {
+      return;
+    }
     final today = await _db.eventsOn(now);
-    if (today.any((e) => e.kind == kind && e.detail == detail)) return;
-    _log(kind, detail);
+    if (today.any(
+      (e) =>
+          e.kind == kind &&
+          e.detail == detail &&
+          (!perCalendarDay || dayKey(e.at) == calendar),
+    )) {
+      return;
+    }
+    _log(kind, detail, at: now);
   }
 
   Map<String, Object?> _statsMap() => {

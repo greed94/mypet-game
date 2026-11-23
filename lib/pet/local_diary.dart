@@ -6,6 +6,7 @@ typedef DayEvent = ({DateTime at, String kind, String detail});
 /// 일기에 먼저 담을 일. 클수록 앞선다.
 const _weight = {
   'first_meeting': 10,
+  'first_recognition': 9,
   'grow': 10,
   'show_off': 8,
   'walk': 8,

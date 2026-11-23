@@ -7,6 +7,7 @@ import 'c3/pixel_icon.dart';
 /// 사용자가 실제로 한 돌봄과 게임 안에서 일어난 이정표만 날짜별로 보여 준다.
 const _activities = <String, (String, String)>{
   'first_meeting': ('heart', '처음 만남'),
+  'first_recognition': ('paw_ink', '주인 냄새 알아보기'),
   'feed': ('bowl', '밥 먹기'),
   'pet': ('palm', '쓰다듬기'),
   'play': ('ball', '공 물어오기'),

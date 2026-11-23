@@ -602,6 +602,37 @@ class AppDatabase extends _$AppDatabase {
         .watch();
   }
 
+  /// 입양 생활일에 실제로 있었던 돌봄별 마지막 시각과 첫 재회 표식만 읽는다.
+  Future<Map<String, DateTime>> firstDayCareTimes(DateTime previousDay) async {
+    final lastAt = events.at.max();
+    final kinds = selectOnly(events)
+      ..addColumns([events.kind, lastAt])
+      ..where(
+        events.kind.isIn(const ['first_meeting', 'first_recognition']) |
+            (events.kind.isIn(const ['feed', 'play', 'pet', 'walk']) &
+                events.at.isBiggerOrEqualValue(petDayStart(previousDay)) &
+                events.at.isSmallerThanValue(
+                  petDayStart(previousDay, offsetDays: 1),
+                )),
+      )
+      ..groupBy([events.kind]);
+    final rows = await kinds.get();
+    return {for (final row in rows) row.read(events.kind)!: row.read(lastAt)!};
+  }
+
+  /// 호출자가 트랜잭션 안에서 손길이 아직 유효한지 확인하고, 아니면 전체를 되돌린다.
+  Future<bool> insertFirstRecognition(DateTime at, String detail) async {
+    final prior =
+        await (selectOnly(events)
+              ..addColumns([events.id])
+              ..where(events.kind.equals('first_recognition'))
+              ..limit(1))
+            .getSingleOrNull();
+    if (prior != null) return false;
+    await addEvent('first_recognition', detail, at);
+    return true;
+  }
+
   Future<List<Event>> eventsOfKind(String kind) =>
       (select(events)..where((e) => e.kind.equals(kind))).get();
 

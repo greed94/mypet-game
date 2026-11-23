@@ -3,10 +3,12 @@
 import 'dart:io';
 
 import 'package:drift/native.dart';
+import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mypet/data/database.dart';
+import 'package:mypet/game/pet_game.dart';
 import 'package:mypet/main.dart';
 import 'package:mypet/pet/pet_controller.dart';
 import 'package:mypet/services/test_mode.dart';
@@ -105,9 +107,9 @@ void main() {
     controller = c;
     // 클라우드에 합성 입력을 보내지 않고 제품의 로컬 반응과 일기 경로를 보여 준다.
     c.brain = null;
-    await record('첫 만남  ·  문 앞에서 냄새를 맡고 다가와요', 64);
+    await record('첫 만남  ·  문 앞에서 냄새를 맡고 다가와요', 53);
     await tester.tap(find.text('밥 주기'));
-    await record('첫 식사  ·  보리가 밥을 먹어요', 58);
+    await record('첫 식사  ·  보리가 밥을 먹어요', 45);
     await tester.runAsync(() => c.settled);
     await tester.tap(find.text('일기').hitTestable());
     await drain();
@@ -119,7 +121,7 @@ void main() {
     await drain();
     expect(find.text('오늘 지금까지'), findsOneWidget);
     expect(await tester.runAsync(() => db.allDiaries()), isEmpty);
-    await record('그날 밤  ·  오늘 있었던 일을 미리 봐요', 40);
+    await record('그날 밤  ·  오늘 있었던 일을 미리 봐요', 36);
     await tester.tap(find.text('닫기'));
     await tester.pump(const Duration(milliseconds: 350));
     await tester.tap(find.text('집').hitTestable());
@@ -135,7 +137,26 @@ void main() {
       expect(entry.content, contains('밥을 줬다'));
     });
     await drain();
-    await record('다음 날 아침  ·  테스트 시계를 앞당겼어요', 26);
+    await record('다음 날 아침  ·  테스트 시계를 앞당겼어요', 16);
+    expect(find.textContaining('2일째 함께'), findsOneWidget);
+    final room = find.byType(GameWidget<PetGame>);
+    final game = tester.widget<GameWidget<PetGame>>(room).game!;
+    final dog =
+        tester.getTopLeft(room) +
+        Offset(game.floorX(c.petX), game.petBaseline - 12 * game.pixelScale);
+    await tester.tapAt(dog);
+    await drain();
+    expect(c.bubble, '킁… 어제 밥 주던 손 냄새다!');
+    expect(
+      await tester.runAsync(() => db.eventsOfKind('first_recognition')),
+      hasLength(1),
+    );
+    await capturePreview(
+      tester,
+      find.byKey(screen),
+      File('${output.path}/mypet-first-return.png'),
+    );
+    await record('쓰다듬자 어제 밥 주던 손을 알아봐요', 44);
     await tester.tap(find.text('일기').hitTestable());
     await drain();
     await tester.tap(find.text('그날의 발자국').hitTestable());
@@ -144,7 +165,7 @@ void main() {
     expect(find.text('밥 먹기'), findsOneWidget);
     final savedPage = File('${output.path}/mypet-diary-saved-page.png');
     await capturePreview(tester, find.byKey(screen), savedPage);
-    await record('다시 펼친 일기  ·  어제의 만남과 식사 시각', 42);
+    await record('다시 펼친 일기  ·  어제의 만남과 식사 시각', 36);
 
     await tester.tap(find.text('집').hitTestable());
     await drain();

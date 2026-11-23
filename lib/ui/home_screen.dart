@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
@@ -117,6 +118,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   static const _storage = FlutterSecureStorage();
   static const _stepsAskedKey = 'steps_asked';
+  PetController? _stepsDialogOwner;
+
+  void _releaseStepsDialog() {
+    final owner = _stepsDialogOwner;
+    _stepsDialogOwner = null;
+    if (owner != null && !owner.isDisposed) owner.uiBusy = false;
+  }
 
   @override
   void initState() {
@@ -146,6 +154,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _releaseStepsDialog();
     Notifications.opened.removeListener(_showFromNotification);
     _lifecycle.dispose();
     _cueSub?.cancel();
@@ -192,6 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return _acceptsInput &&
         _tab == 0 &&
         !c.walking &&
+        !c.uiBusy &&
         c.now().difference(c.pet.bornAt) >= const Duration(days: 1) &&
         ModalRoute.of(context)?.isCurrent == true;
   }
@@ -221,31 +231,35 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     if (!mounted || !_canOfferPocketSteps) return;
-    final name = widget.controller.pet.name;
-    final yes = await showC3Dialog<bool>(
-      context,
-      title: '${josa(name, '이/가')} 동네를 돌아다녀도 될까요?',
-      body: Text(
-        '앱을 열 때 폰이 센 걸음 수를 한 번만 읽어요. '
-        '주인이 걸은 만큼 $name도 동네를 돌며 뭔가 주워 와요. '
-        '위치나 경로는 보지 않아요.',
+    final c = widget.controller;
+    final name = c.pet.name;
+    final yes = await _withStepsDialog(
+      c,
+      () => showC3Dialog<bool>(
+        context,
+        title: '${josa(name, '이/가')} 동네를 돌아다녀도 될까요?',
+        body: Text(
+          '앱을 열 때 폰이 센 걸음 수를 한 번만 읽어요. '
+          '주인이 걸은 만큼 $name도 동네를 돌며 뭔가 주워 와요. '
+          '위치나 경로는 보지 않아요.',
+        ),
+        actions: [
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('나중에'),
+            ),
+          ),
+          Builder(
+            builder: (context) => FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('좋아요'),
+            ),
+          ),
+        ],
       ),
-      actions: [
-        Builder(
-          builder: (context) => TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('나중에'),
-          ),
-        ),
-        Builder(
-          builder: (context) => FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('좋아요'),
-          ),
-        ),
-      ],
     );
-    if (!mounted || !_acceptsInput) return;
+    if (!mounted || !_acceptsInput || !identical(widget.controller, c)) return;
     // 실제 안내에 응답하기 전에 완료로 저장하면 화면 전환 때 안내를 영영 놓칠 수 있다.
     try {
       await storage.write(key: _stepsAskedKey, value: 'true');
@@ -253,13 +267,27 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     if (!mounted || !_acceptsInput) return;
-    final granted = yes == true && await StepCounter.request();
+    final granted =
+        yes == true && await _withStepsDialog(c, StepCounter.request);
     if (!mounted || !_acceptsInput) return;
     Telemetry.track('steps_permission', {
       'asked': yes == true,
       'granted': granted,
     });
-    if (granted) await widget.controller.collectNow();
+    if (granted && identical(widget.controller, c)) await c.collectNow();
+  }
+
+  Future<T> _withStepsDialog<T>(
+    PetController c,
+    Future<T> Function() show,
+  ) async {
+    _stepsDialogOwner = c;
+    c.uiBusy = true;
+    try {
+      return await show();
+    } finally {
+      _releaseStepsDialog();
+    }
   }
 
   Future<void> _send(String text, {bool voice = false}) async {
@@ -864,17 +892,40 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   ListenableBuilder(
                     listenable: c,
-                    child: GameWidget(game: _game),
+                    child: ExcludeFocus(
+                      child: GameWidget(game: _game, autofocus: false),
+                    ),
                     builder: (context, game) {
                       final thought = showActions ? c.bubble : null;
-                      return Semantics(
-                        container: true,
-                        liveRegion: thought != null,
-                        label: thought == null
-                            ? c.pet.name
-                            : '${c.pet.name}의 ${c.bubbleFromAi ? 'AI 속마음' : '속마음'}',
-                        value: thought,
-                        child: game,
+                      bool canPet() =>
+                          mounted &&
+                          _acceptsInput &&
+                          identical(widget.controller, c) &&
+                          _tab == 0 &&
+                          !c.uiBusy &&
+                          !c.roomHidden &&
+                          !c.walking &&
+                          !c.out &&
+                          !c.replaying;
+                      final pettable = canPet();
+                      void pet() {
+                        if (canPet()) c.interact(Interaction.pet);
+                      }
+
+                      return _PetKeyboardTarget(
+                        onPet: pettable ? pet : null,
+                        child: Semantics(
+                          container: true,
+                          liveRegion: thought != null,
+                          button: pettable,
+                          onTap: pettable ? pet : null,
+                          onTapHint: pettable ? '쓰다듬기' : null,
+                          label: thought == null
+                              ? (pettable ? '${c.pet.name} 쓰다듬기' : c.pet.name)
+                              : '${c.pet.name}의 ${c.bubbleFromAi ? 'AI 속마음' : '속마음'}',
+                          value: thought,
+                          child: game,
+                        ),
                       );
                     },
                   ),
@@ -1481,6 +1532,43 @@ class _PawToastState extends State<_PawToast> {
   }
 }
 
+class _PetKeyboardTarget extends StatefulWidget {
+  const _PetKeyboardTarget({required this.onPet, required this.child});
+  final VoidCallback? onPet;
+  final Widget child;
+
+  @override
+  State<_PetKeyboardTarget> createState() => _PetKeyboardTargetState();
+}
+
+class _PetKeyboardTargetState extends State<_PetKeyboardTarget> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) => Focus(
+    debugLabel: '강아지 쓰다듬기',
+    canRequestFocus: widget.onPet != null,
+    onFocusChange: (focused) => setState(() => _focused = focused),
+    onKeyEvent: (_, event) {
+      if (widget.onPet == null ||
+          (event.logicalKey != LogicalKeyboardKey.enter &&
+              event.logicalKey != LogicalKeyboardKey.space &&
+              event.logicalKey != LogicalKeyboardKey.numpadEnter)) {
+        return KeyEventResult.ignored;
+      }
+      if (event is KeyDownEvent) widget.onPet!();
+      return KeyEventResult.handled;
+    },
+    child: DecoratedBox(
+      position: DecorationPosition.foreground,
+      decoration: BoxDecoration(
+        border: _focused ? Border.all(color: C3Colors.ink, width: 3) : null,
+      ),
+      child: widget.child,
+    ),
+  );
+}
+
 class _Header extends StatelessWidget {
   const _Header({required this.controller, required this.onSettings});
 
@@ -1490,11 +1578,11 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pet = controller.pet;
-    final days = controller.now().difference(pet.bornAt).inDays + 1;
+    final days = daysTogether(pet.bornAt, controller.now());
     final sub = [
       pet.stage == PetStage.puppy ? '아기' : '성체',
       intimacyLabel(controller.intimacy),
-      '함께한 지 $days일째',
+      days == 1 ? '함께한 첫날' : '$days일째 함께',
     ].join(' · ');
     final weather = controller.weather;
     return SizedBox(

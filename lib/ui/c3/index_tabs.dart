@@ -110,7 +110,9 @@ class IndexTabs extends StatelessWidget {
       selected: on,
       label: dots.contains(i) ? '${labels[i]}, 새 글 있음' : labels[i],
       excludeSemantics: true,
+      onTap: () => onSelect(i),
       child: GestureDetector(
+        excludeFromSemantics: true,
         behavior: HitTestBehavior.opaque,
         onTap: () => onSelect(i),
         child: Container(

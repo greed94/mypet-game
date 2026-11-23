@@ -38,6 +38,13 @@ class PetGame extends FlameGame {
   /// 방 문을 탭했을 때. 홈 화면이 동네 지도를 띄운다.
   VoidCallback? onDoorTap;
 
+  /// 방이 짧으면 Flutter 사진 캡션이 같은 속마음을 보여 준다.
+  bool showThoughtInRoom = true;
+
+  /// 버튼으로도 드래그와 같은 물리 동작을 실행한다. 강아지 앞 여유가 있는 쪽으로 던진다.
+  void tossBall() =>
+      _ball?.fling(Vector2(controller.petX > .5 ? -520 : 520, -1000));
+
   /// 카페 손님을 탭했을 때. 홈 화면이 친구 카드를 띄운다.
   void Function(Guest guest)? onGuestTap;
 
@@ -1800,6 +1807,8 @@ class _Ball extends Component with HasGameReference<PetGame> {
   void fling(Vector2 velocity) {
     if (controller.ball != Ball.ready || velocity.y > -250) return;
     if (!controller.throwBall()) return;
+    if (_was == Ball.carried || _was == Ball.none) _dropFromMouth();
+    _was = Ball.thrown;
     _v.setValues(
       (velocity.x * 0.55).clamp(-1000, 1000),
       (velocity.y * 0.55).clamp(-1300, -500),
@@ -1810,7 +1819,6 @@ class _Ball extends Component with HasGameReference<PetGame> {
   @override
   void update(double dt) {
     final state = controller.ball;
-    final pet = game._sprite;
     _sinceBounce += dt;
     if (state == Ball.none || state == Ball.carried) {
       _was = state;
@@ -1818,14 +1826,7 @@ class _Ball extends Component with HasGameReference<PetGame> {
       return;
     }
     if (_was == Ball.carried || _was == Ball.none) {
-      if (pet != null) {
-        _pos.setFrom(pet.mouthBottom);
-        _v.setValues(pet.facingLeft ? -50 : 50, -90);
-      } else {
-        _pos.setValues(game.floorX(0.5), game.petBaseline);
-        _v.setZero();
-      }
-      _moving = true;
+      _dropFromMouth();
     }
     _was = state;
     if (!_moving) {
@@ -1838,6 +1839,18 @@ class _Ball extends Component with HasGameReference<PetGame> {
     for (var i = 0; i < n && _moving; i++) {
       _step(min(dt, 0.1) / n);
     }
+  }
+
+  void _dropFromMouth() {
+    final pet = game._sprite;
+    if (pet != null) {
+      _pos.setFrom(pet.mouthBottom);
+      _v.setValues(pet.facingLeft ? -50 : 50, -90);
+    } else {
+      _pos.setValues(game.floorX(0.5), game.petBaseline);
+      _v.setZero();
+    }
+    _moving = true;
   }
 
   void _step(double dt) {
@@ -2442,7 +2455,7 @@ class _ThoughtBubble extends Component with HasGameReference<PetGame> {
   @override
   void render(Canvas canvas) {
     final text = controller.bubble;
-    if (text == null) return;
+    if (text == null || !game.showThoughtInRoom) return;
     final painter = TextPainter(
       text: TextSpan(text: keepWords(text), style: C3Text.pet),
       textAlign: TextAlign.center,

@@ -18,6 +18,7 @@ class StickerButton extends StatefulWidget {
     this.onTap,
     this.highlighted = false,
     this.width = 104,
+    this.compact = false,
   });
 
   final String cut;
@@ -29,6 +30,7 @@ class StickerButton extends StatefulWidget {
 
   /// 한 줄에 넷이 설 땐 좁힌다(폰 폭 360dp).
   final double width;
+  final bool compact;
 
   @override
   State<StickerButton> createState() => _StickerButtonState();
@@ -44,12 +46,15 @@ class _StickerButtonState extends State<StickerButton> {
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onTap != null;
+    final labelHeight = MediaQuery.textScalerOf(context).scale(16) * 18 / 16;
     return Semantics(
       button: true,
       enabled: enabled,
       label: widget.label,
+      onTap: widget.onTap,
       excludeSemantics: true,
       child: GestureDetector(
+        excludeFromSemantics: true,
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         onTapDown: (_) => _press(true),
@@ -62,16 +67,57 @@ class _StickerButtonState extends State<StickerButton> {
             duration: const Duration(milliseconds: 90),
             child: SizedBox(
               width: widget.width,
-              height: 88,
-              child: Column(
-                children: [
-                  const SizedBox(height: 2),
-                  _sticker(),
-                  const SizedBox(height: 4),
-                  Text(widget.label, style: C3Text.label, maxLines: 1),
-                ],
-              ),
+              height: widget.compact ? 48 : 70 + math.max(18, labelHeight),
+              child: widget.compact
+                  ? _compactButton()
+                  : Column(
+                      children: [
+                        const SizedBox(height: 2),
+                        _sticker(),
+                        const SizedBox(height: 4),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            widget.label,
+                            style: C3Text.label,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ],
+                    ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _compactButton() {
+    return Center(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: widget.highlighted ? C3Colors.tapeYellow : C3Colors.card,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: const [
+            BoxShadow(color: C3Colors.shadow, offset: Offset(0, 1)),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PixelIcon(widget.icon, scale: 1),
+              const SizedBox(width: 2),
+              Flexible(
+                child: Text(
+                  widget.label,
+                  style: C3Text.label.copyWith(fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
         ),
       ),

@@ -667,6 +667,13 @@ void main() {
     expect(tried, 0);
     await tester.tap(find.text('앉아'));
     expect(tried, 1);
+    final trained = find.semantics.byLabel('앉아, 별 3개');
+    tester.semantics.tap(trained);
+    await tester.pump();
+    expect(tried, 2);
+    tester.semantics.longPress(trained);
+    await tester.pump();
+    expect(opened, 3);
     expect(tester.takeException(), isNull);
   });
 
@@ -842,6 +849,13 @@ void main() {
     expect(find.text('가짐'), findsOneWidget);
     expect(find.text('발도장 8'), findsNWidgets(5));
     expect(find.text('발도장 12'), findsNWidgets(3));
+    await tester.ensureVisible(find.text('빨강 목걸이'));
+    await tester.pump();
+    tester.semantics.tap(find.semantics.byLabel('빨강 목걸이, 가짐'));
+    await tester.pump();
+    expect(c.collar.id, 'collar_red');
+    expect(c.paws, 15);
+    await tester.runAsync(() => c.settled);
   });
 
   testWidgets('아는 강아지 데려오기: 이름을 넣어야 버튼이 켜지고, 누르면 데려온다', (tester) async {

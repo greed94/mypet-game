@@ -29,6 +29,7 @@ import 'package:mypet/ui/friends.dart';
 import 'package:mypet/ui/home_screen.dart';
 import 'package:mypet/ui/item_icon.dart';
 import 'package:mypet/ui/shape_picker.dart';
+import 'package:mypet/ui/play_tray.dart';
 import 'package:mypet/ui/walk_card.dart';
 
 class _DelayedStepsStorage extends FlutterSecureStorage {
@@ -117,6 +118,7 @@ void main() {
     int paws = 10,
     Duration age = const Duration(days: 5),
     String? pouch,
+    String? portraitPath,
     Future<int?> Function()? readStepTotal,
   }) async {
     tester.view.physicalSize = const Size(1080, 2637);
@@ -131,6 +133,7 @@ void main() {
         furMain: 0xFFB5582E,
         furSecond: 0xFFF5EDE2,
         marking: 0xFF8A3A1A,
+        portraitPath: portraitPath,
         now: now.subtract(age),
       );
       pet = pet.copyWith(
@@ -207,6 +210,194 @@ void main() {
     }
     expect(done(), isTrue);
   }
+
+  testWidgets('320px 방에서도 간식을 포함한 네 돌봄 스티커가 모두 눌린다', (tester) async {
+    final home = await make(tester, pouch: 'cheese_ball,jerky');
+    tester.view.physicalSize = const Size(960, 2100);
+    await mount(tester, home);
+    for (final label in ['밥 주기', '놀아주기', '산책 가기', '간식 2']) {
+      final action = find.text(label).hitTestable();
+      expect(action, findsOneWidget, reason: label);
+      expect(
+        tester.getSize(find.bySemanticsLabel(label)).width,
+        greaterThanOrEqualTo(48),
+      );
+    }
+    await tester.tap(find.text('간식 2').hitTestable());
+    await tester.pump();
+    expect(home.c.pouch, hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('짧은 창에서도 밥을 주고 공놀이로 들어갔다가 다시 돌볼 수 있다', (tester) async {
+    final home = await make(tester);
+    tester.view.physicalSize = const Size(960, 1260);
+    await mount(tester, home);
+    final before = home.c.stats.hunger;
+    await tester.tap(find.text('밥 주기').hitTestable());
+    await tester.pump();
+    expect(home.c.stats.hunger, lessThan(before));
+    await tester.tap(find.text('놀아주기').hitTestable());
+    await tester.pump();
+    expect(home.c.ball, isNot(Ball.none));
+    final tray = find.byType(PlayTray);
+    expect(tray, findsOneWidget);
+    final close = find.descendant(of: tray, matching: find.text('그만 놀기'));
+    await Scrollable.ensureVisible(tester.element(close), alignment: .5);
+    await tester.pump();
+    await tester.tap(close.hitTestable());
+    await tester.pump();
+    expect(find.text('밥 주기').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('화면 읽기의 실행 동작으로 밥을 주고 도감 탭을 열 수 있다', (tester) async {
+    final home = await make(tester);
+    await mount(tester, home);
+    final hunger = home.c.stats.hunger;
+    tester.semantics.tap(find.semantics.byLabel('밥 주기'));
+    await tester.pump();
+    expect(home.c.stats.hunger, lessThan(hunger));
+    tester.semantics.tap(find.semantics.byLabel('도감'));
+    await tester.pump();
+    expect(home.c.roomHidden, isTrue);
+    expect(find.text('기억 수첩').hitTestable(), findsOneWidget);
+  });
+
+  for (final photo in [null, 'build/portfolio/absent-synthetic-portrait.jpg']) {
+    testWidgets('홈 사진이 없거나 사라져도 이 펫의 실제 털·모양·성장 단계를 그린다 ($photo)', (
+      tester,
+    ) async {
+      final home = await make(tester, portraitPath: photo);
+      await mount(tester, home);
+      final preview = tester.widget<PetSpritePreview>(
+        find.byType(PetSpritePreview),
+      );
+      final pet = home.c.pet;
+      expect(preview.shape, pet.shape);
+      expect(preview.stage, pet.stage);
+      expect(preview.colors.main, pet.furMain);
+      expect(preview.colors.second, pet.furSecond);
+      expect(preview.colors.marking, pet.marking);
+      expect(home.c.buyCosmetic('collar_sky'), isTrue);
+      await tester.pump();
+      final wearing = tester.widget<PetSpritePreview>(
+        find.byType(PetSpritePreview),
+      );
+      expect(wearing.accent, home.c.pet.accent);
+      expect(wearing.accent, isNot(preview.accent));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('짧은 창에서 키보드가 올라오고 내려가도 쓰던 대화와 입력 초점을 유지한다', (tester) async {
+    final home = await make(tester);
+    tester.view.physicalSize = const Size(960, 1260);
+    await mount(tester, home);
+    final field = find.byType(TextField);
+    await tester.ensureVisible(field);
+    await tester.tap(field.hitTestable());
+    await tester.enterText(field, '보리야');
+    final focus = tester
+        .widget<EditableText>(find.byType(EditableText))
+        .focusNode;
+    expect(focus.hasFocus, isTrue);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 540);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      tester.widget<EditableText>(find.byType(EditableText)).focusNode,
+      same(focus),
+    );
+    expect(focus.hasFocus, isTrue);
+    await tester.enterText(field, '보리야 잘 잤어?');
+    tester.view.viewInsets = FakeViewPadding.zero;
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(focus.hasFocus, isTrue);
+    expect(tester.widget<TextField>(field).controller!.text, '보리야 잘 잤어?');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('짧은 방에서는 강아지 아래 속마음을 눌러 전문을 읽고 집으로 돌아온다', (tester) async {
+    final home = await make(tester);
+    tester.view.physicalSize = const Size(960, 1260);
+    tester.view.padding = const FakeViewPadding(top: 72, bottom: 60);
+    await mount(tester, home);
+    expect(home.c.startWalk(), isTrue);
+    await tester.pump();
+    final game = find.byType(GameWidget<PetGame>);
+    final thought = find.widgetWithText(TextButton, '산책이다!');
+    expect(home.game.showThoughtInRoom, isFalse);
+    final announced = tester
+        .getSemantics(find.bySemanticsLabel('콩이의 속마음'))
+        .getSemanticsData();
+    expect(announced.flagsCollection.isLiveRegion, isTrue);
+    expect(announced.value, '산책이다!');
+    expect(
+      tester.getBottomLeft(game).dy,
+      lessThanOrEqualTo(tester.getTopLeft(thought).dy),
+    );
+    expect(tester.getSize(game).height, greaterThan(70));
+    await tester.tap(thought.hitTestable());
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('콩이의 속마음'), findsOneWidget);
+    expect(home.c.uiBusy, isTrue);
+    await tester.tap(find.text('확인'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(home.c.walking, isTrue);
+    expect(home.c.uiBusy, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('작은 창에서 카페의 개인기를 펼쳐도 방과 돌아오는 버튼이 남는다', (tester) async {
+    final home = await make(tester);
+    tester.view.physicalSize = const Size(960, 1260);
+    tester.view.padding = const FakeViewPadding(top: 72, bottom: 60);
+    await mount(tester, home);
+    await tester.tap(find.text('동네 지도').hitTestable());
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('카페').hitTestable());
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(home.c.atCafe, isTrue);
+    await tester.tap(find.text('개인기').hitTestable());
+    await tester.pump();
+    expect(
+      tester.getSize(find.byType(GameWidget<PetGame>)).height,
+      greaterThan(70),
+    );
+    final close = find.text('그만 놀기');
+    await Scrollable.ensureVisible(tester.element(close), alignment: .5);
+    await tester.pump();
+    await tester.tap(close.hitTestable());
+    await tester.pump();
+    await tester.ensureVisible(find.text('집으로'));
+    await tester.tap(find.text('집으로').hitTestable());
+    await tester.pump();
+    expect(home.c.out, isFalse);
+    // 카페를 떠난 직후의 친구 카드 확인 주기가 종료되는 것까지 검증한다.
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(Dialog), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('화면 읽기로 준비된 공을 던지면 방에서 튀고 강아지가 쫓는다', (tester) async {
+    final home = await make(tester);
+    await mount(tester, home);
+    tester.semantics.tap(find.semantics.byLabel('놀아주기'));
+    await tester.pump();
+    expect(find.text('공 던지기'), findsNothing);
+    runUntil(home.c, () => home.c.ball == Ball.ready);
+    await tester.pump();
+    tester.semantics.tap(find.semantics.byLabel('공 던지기'));
+    await tester.pump();
+    expect(home.c.ball, Ball.thrown);
+    expect(home.c.step.tag, StepTag.chase);
+    expect(find.text('공 던지기'), findsNothing);
+    for (var i = 0; i < 600 && home.c.ball == Ball.thrown; i++) {
+      home.game.update(1 / 60);
+    }
+    expect(home.c.ball, isNot(Ball.thrown));
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('집 사진의 동네 지도에서 가게로 가고 돌아오면 다시 지도를 열 수 있다', (tester) async {
     final home = await make(tester);

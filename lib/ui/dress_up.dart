@@ -133,8 +133,10 @@ class _CosmeticTile extends StatelessWidget {
       button: true,
       selected: worn,
       label: '${item.label}, $note',
+      onTap: onTap,
       excludeSemantics: true,
       child: GestureDetector(
+        excludeFromSemantics: true,
         onTap: onTap,
         child: Container(
           width: 76,

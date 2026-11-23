@@ -116,6 +116,7 @@ class PetSpritePreview extends StatefulWidget {
     required this.stage,
     this.dimension = 96,
     this.sitting = false,
+    this.accent = defaultAccent,
   });
 
   final String shape;
@@ -123,6 +124,7 @@ class PetSpritePreview extends StatefulWidget {
   final PetStage stage;
   final double dimension;
   final bool sitting;
+  final int accent;
 
   @override
   State<PetSpritePreview> createState() => _PetSpritePreviewState();
@@ -146,6 +148,7 @@ class _PetSpritePreviewState extends State<PetSpritePreview> {
     final c = widget.colors, o = old.colors;
     if (widget.shape != old.shape ||
         widget.stage != old.stage ||
+        widget.accent != old.accent ||
         c.main != o.main ||
         c.second != o.second ||
         c.marking != o.marking) {
@@ -171,7 +174,7 @@ class _PetSpritePreviewState extends State<PetSpritePreview> {
         sheet,
         main: c.main,
         second: c.second,
-        accent: defaultAccent,
+        accent: widget.accent,
         marking: c.marking,
       );
       if (!mounted || mine != _request) {

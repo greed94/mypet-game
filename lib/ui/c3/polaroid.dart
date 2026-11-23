@@ -10,12 +10,14 @@ class Polaroid extends StatelessWidget {
     required this.child,
     required this.caption,
     this.captionRight,
+    this.captionContent,
     this.action,
   });
 
   final Widget child;
   final String caption;
   final String? captionRight;
+  final Widget? captionContent;
   final Widget? action;
 
   @override
@@ -51,25 +53,27 @@ class Polaroid extends StatelessWidget {
                 ),
               ),
               SizedBox(
-                height: action == null ? 32 : 48,
+                height: action == null && captionContent == null ? 32 : 48,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(4, 0, 4, 1),
                   child: Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          caption,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontFamily: C3Fonts.gaegu,
-                            fontFamilyFallback: C3Fonts.fallback,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 18,
-                            letterSpacing: -.8,
-                            color: C3Colors.ink2,
-                          ),
-                        ),
+                        child:
+                            captionContent ??
+                            Text(
+                              caption,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: C3Fonts.gaegu,
+                                fontFamilyFallback: C3Fonts.fallback,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 18,
+                                letterSpacing: -.8,
+                                color: C3Colors.ink2,
+                              ),
+                            ),
                       ),
                       if (captionRight != null)
                         ConstrainedBox(

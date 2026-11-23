@@ -145,6 +145,18 @@ void main() {
     await drain();
     expect(find.text('어디 갈까?'), findsOneWidget);
     await capturePreview(tester, find.byKey(screen), mapShot);
+
+    await tester.tap(find.bySemanticsLabel('지도 닫기'));
+    await drain();
+    tester.view.physicalSize = const Size(320, 420);
+    await drain();
+    expect(find.text('밥 주기').hitTestable(), findsOneWidget);
+    await capturePreview(
+      tester,
+      find.byKey(screen),
+      File('${output.path}/mypet-compact-room.png'),
+    );
+    expect(tester.takeException(), isNull);
     await tester.runAsync(() async {
       final spread = await Process.run('ffmpeg', [
         '-hide_banner',

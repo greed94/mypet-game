@@ -14,6 +14,7 @@ import 'package:mypet/pet/shapes.dart';
 import 'package:mypet/pet/spots.dart';
 import 'package:mypet/ui/c3/c3_theme.dart';
 import 'package:mypet/ui/c3/sticker_card.dart';
+import 'package:mypet/ui/c3/sticker_button.dart';
 import 'package:mypet/ui/friends.dart';
 import 'package:mypet/ui/shape_picker.dart';
 import 'package:mypet/ui/town_map.dart';
@@ -89,6 +90,30 @@ void main() {
         );
       await loader.load();
     }
+  });
+
+  testWidgets('글씨를 150%로 키워도 돌봄 스티커의 아이콘과 이름이 한 칸에 들어간다', (tester) async {
+    var tapped = false;
+    await mount(
+      tester,
+      Scaffold(
+        body: Center(
+          child: StickerButton(
+            cut: 'tree',
+            icon: 'tree',
+            label: '산책 가기',
+            width: 73,
+            onTap: () => tapped = true,
+          ),
+        ),
+      ),
+      size: const Size(320, 700),
+      scale: 1.5,
+    );
+    expect(tester.getSize(find.byType(StickerButton)).height, greaterThan(88));
+    await tester.tap(find.text('산책 가기').hitTestable());
+    expect(tapped, isTrue);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('짧은 화면과 큰 글씨에서도 지도 모든 장소를 고를 수 있다', (tester) async {

@@ -13,6 +13,8 @@ class PlayTray extends StatelessWidget {
     required this.onClose,
     this.hide = const {},
     this.onNotebook,
+    this.onThrow,
+    this.compact = false,
     this.treats = 0,
     this.onTreat,
   });
@@ -26,6 +28,8 @@ class PlayTray extends StatelessWidget {
   final Set<Trick> hide;
   final ValueChanged<Trick> onTrick;
   final VoidCallback onClose;
+  final VoidCallback? onThrow;
+  final bool compact;
 
   /// 주머니 간식 수. 개인기를 해낸 직후 주면 칭찬이 된다(놀이 칸이 밥·간식 줄을 가려서 여기에도 둔다).
   final int treats;
@@ -33,8 +37,8 @@ class PlayTray extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
+    final tray = Padding(
+      padding: EdgeInsets.fromLTRB(16, compact ? 4 : 14, 16, 2),
       child: StickerCard(
         tape: C3Colors.tapeSky,
         padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
@@ -45,6 +49,12 @@ class PlayTray extends StatelessWidget {
             runSpacing: 0,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
+              if (onThrow != null)
+                TextButton.icon(
+                  onPressed: onThrow,
+                  icon: const Icon(Icons.sports_baseball_outlined, size: 18),
+                  label: const Text('공 던지기'),
+                ),
               for (final t in Trick.values)
                 if (t.chip && !hide.contains(t))
                   _TrickChip(
@@ -84,6 +94,11 @@ class PlayTray extends StatelessWidget {
         ),
       ),
     );
+    if (!compact) return tray;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 88),
+      child: SingleChildScrollView(child: tray),
+    );
   }
 }
 
@@ -117,8 +132,11 @@ class _TrickChip extends StatelessWidget {
           : trying
           ? '${trick.label}, 배우는 중'
           : trick.label,
+      onTap: onTap,
+      onLongPress: onLongPress,
       excludeSemantics: true,
       child: GestureDetector(
+        excludeFromSemantics: true,
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         onLongPress: onLongPress,

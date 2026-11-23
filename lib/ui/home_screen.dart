@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../art/photo_art.dart';
 import '../data/database.dart';
 import '../game/pet_game.dart';
 import '../pet/checkup.dart';
@@ -45,8 +46,10 @@ import 'crisis_dialog.dart';
 import 'friends.dart';
 import 'walk_card.dart';
 import 'lesson_picker.dart';
+import 'keep_words.dart';
 import 'place_card.dart';
 import 'play_tray.dart';
+import 'shape_picker.dart';
 import 'trick_notebook.dart';
 import 'time_sheet.dart';
 import 'settings_screen.dart';
@@ -713,14 +716,26 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _home(PetController c, bool typing) {
-    // 분할 화면처럼 세로가 짧으면 게이지·행동 줄을 접어 방 자리를 남긴다.
+    // 세로가 짧으면 게이지를 접고 돌봄 스티커를 작은 한 줄로 표시한다.
     return LayoutBuilder(
-      builder: (context, box) => _homeColumn(
-        c,
-        typing: typing,
-        showGauges: !typing && box.maxHeight >= 600,
-        showActions: !typing && box.maxHeight >= 480,
-      ),
+      builder: (context, box) {
+        final compact = typing || box.maxHeight < 480;
+        _game.showThoughtInRoom = !compact;
+        final room = _homeColumn(
+          c,
+          typing: typing,
+          showGauges: !typing && box.maxHeight >= 600,
+          showActions: !compact,
+        );
+        // 화면 분할·시스템 여백이 큰 창에서도 방이 사라지지 않게 아래 입력줄까지 스크롤한다.
+        final minHeight = typing ? 270.0 : 380.0;
+        return SingleChildScrollView(
+          child: SizedBox(
+            height: box.maxHeight < minHeight ? minHeight : box.maxHeight,
+            child: room,
+          ),
+        );
+      },
     );
   }
 
@@ -749,12 +764,15 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
+            padding: EdgeInsets.fromLTRB(12, showActions ? 16 : 8, 12, 0),
             child: ListenableBuilder(
               listenable: c,
               builder: (context, child) => Polaroid(
                 caption: _caption(c),
-                captionRight: _captionRight(c),
+                captionRight: showActions ? _captionRight(c) : null,
+                captionContent: !showActions && c.bubble != null
+                    ? _compactThought(c, c.bubble!, c.bubbleFromAi)
+                    : null,
                 action: typing || c.walking || c.out || c.replaying
                     ? null
                     : TextButton.icon(
@@ -778,7 +796,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     listenable: c,
                     child: GameWidget(game: _game),
                     builder: (context, game) {
-                      final thought = c.bubble;
+                      final thought = showActions ? c.bubble : null;
                       return Semantics(
                         container: true,
                         liveRegion: thought != null,
@@ -795,10 +813,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     builder: (context, _) => Stack(
                       fit: StackFit.expand,
                       children: [
-                        _palm(c),
-                        _padButton(c),
-                        _homeCamButton(c),
-                        _recitalButton(c),
+                        _palm(c, compact: !showActions),
+                        _padButton(c, compact: !showActions),
+                        _homeCamButton(c, compact: !showActions),
+                        _recitalButton(c, compact: !showActions),
                         _PawToast(controller: c),
                       ],
                     ),
@@ -815,6 +833,7 @@ class _HomeScreenState extends State<HomeScreen> {
               : c.out
               ? (_cafeTray && c.atCafe
                     ? PlayTray(
+                        compact: !showActions,
                         tricks: c.tricks,
                         hide: const {Trick.fetch},
                         onTrick: c.command,
@@ -824,10 +843,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     : _placePanel(c))
               : c.replaying
               ? _replayPanel(c)
-              : (showActions ? _actions(c) : const SizedBox()),
+              : (typing
+                    ? const SizedBox()
+                    : _actions(c, compact: !showActions)),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            showActions ? 10 : 4,
+            12,
+            showActions ? 10 : 4,
+          ),
           child: SizedBox(
             height: 56,
             child: Row(
@@ -868,7 +894,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 쉬가 마려워 킁킁대는 8초 동안만 보인다. 누르면 패드로 데려간다.
-  Widget _padButton(PetController c) {
+  Widget _padButton(PetController c, {required bool compact}) {
     if (!c.pottyUrge || c.walking || c.out) return const SizedBox();
     return Positioned(
       left: 4,
@@ -877,6 +903,8 @@ class _HomeScreenState extends State<HomeScreen> {
         cut: 'palm',
         icon: 'paw_ink',
         label: '패드로',
+        compact: compact,
+        width: compact ? 80 : 104,
         tilt: -3,
         highlighted: true,
         onTap: c.goToPad,
@@ -885,7 +913,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 금요일 유치원 발표회. 구경하러 갔을 때만 뜬다(맡겨 둔 날엔 없다).
-  Widget _recitalButton(PetController c) {
+  Widget _recitalButton(PetController c, {required bool compact}) {
     if (!c.recitalReady) return const SizedBox();
     return Positioned(
       right: 4,
@@ -894,6 +922,8 @@ class _HomeScreenState extends State<HomeScreen> {
         cut: 'palm',
         icon: 'sparkle',
         label: '발표회',
+        compact: compact,
+        width: compact ? 80 : 104,
         tilt: 3,
         highlighted: true,
         onTap: c.startRecital,
@@ -905,7 +935,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _handHint(PetController c) =>
       c.intimacy != Intimacy.stranger && !c.triedHand && c.now().minute < 10;
 
-  Widget _palm(PetController c) {
+  Widget _palm(PetController c, {required bool compact}) {
     final held = c.presenting;
     if (held == null || c.walking || c.out || c.replaying) {
       return const SizedBox();
@@ -917,9 +947,52 @@ class _HomeScreenState extends State<HomeScreen> {
         cut: 'palm',
         icon: 'palm',
         label: held.source == FindSource.window ? '창틀 보기' : '손 내밀기',
+        compact: compact,
+        width: compact ? 82 : 104,
         tilt: 3,
         highlighted: true,
         onTap: _receive,
+      ),
+    );
+  }
+
+  Widget _compactThought(PetController c, String thought, bool fromAi) {
+    final title = '${c.pet.name}의 ${fromAi ? 'AI 속마음' : '속마음'}';
+    Future<void> open() async {
+      if (!_acceptsInput || c.uiBusy) return;
+      c.uiBusy = true;
+      try {
+        await showC3Dialog<void>(
+          context,
+          title: title,
+          body: Text(keepWords(thought), style: C3Text.pet),
+        );
+      } finally {
+        c.uiBusy = false;
+      }
+    }
+
+    return Semantics(
+      button: true,
+      liveRegion: true,
+      label: title,
+      value: thought,
+      excludeSemantics: true,
+      onTap: open,
+      child: TextButton(
+        onPressed: open,
+        style: TextButton.styleFrom(
+          alignment: Alignment.centerLeft,
+          foregroundColor: C3Colors.ink,
+          minimumSize: const Size(0, 48),
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+        ),
+        child: Text(
+          '${fromAi ? 'AI · ' : ''}$thought',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: C3Text.pet.copyWith(fontSize: 16, height: 1.15),
+        ),
       ),
     );
   }
@@ -956,9 +1029,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return '$sky$day';
   }
 
-  Widget _actions(PetController c) {
+  Widget _actions(PetController c, {bool compact = false}) {
     if (c.ball != Ball.none) {
       return PlayTray(
+        compact: compact,
+        onThrow: c.ball == Ball.ready ? _game.tossBall : null,
         tricks: c.tricks,
         onTrick: c.command,
         onNotebook: () => showTrickNotebook(context, c),
@@ -971,49 +1046,51 @@ class _HomeScreenState extends State<HomeScreen> {
     // 간식이 있으면 네 번째 스티커. 방 위에 두면 문 앞 펫을 가려 쓰다듬으려다 간식이 나갔다.
     final treats = c.pouch.length;
     final width = treats > 0 ? 80.0 : 104.0;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-      child: SizedBox(
-        height: 88,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            StickerButton(
-              cut: 'bowl',
-              icon: 'bowl',
-              label: '밥 주기',
-              tilt: -3,
-              width: width,
-              onTap: () => c.interact(Interaction.feed),
-            ),
-            StickerButton(
-              cut: 'ball',
-              icon: 'ball',
-              label: '놀아주기',
-              tilt: 2,
-              width: width,
-              onTap: c.takeOutBall,
-            ),
-            StickerButton(
-              cut: 'tree',
-              icon: 'tree',
-              label: '산책 가기',
-              tilt: -1.5,
-              width: width,
-              highlighted: c.walkProposed,
-              onTap: _startWalk,
-            ),
-            if (treats > 0)
-              StickerButton(
-                cut: 'box',
-                icon: 'bone',
-                label: '간식 $treats',
-                tilt: 2.5,
-                width: width,
-                onTap: c.giveTreat,
-              ),
-          ],
+    final buttons = [
+      StickerButton(
+        compact: compact,
+        cut: 'bowl',
+        icon: 'bowl',
+        label: '밥 주기',
+        tilt: -3,
+        width: width,
+        onTap: () => c.interact(Interaction.feed),
+      ),
+      StickerButton(
+        compact: compact,
+        cut: 'ball',
+        icon: 'ball',
+        label: '놀아주기',
+        tilt: 2,
+        width: width,
+        onTap: c.takeOutBall,
+      ),
+      StickerButton(
+        compact: compact,
+        cut: 'tree',
+        icon: 'tree',
+        label: '산책 가기',
+        tilt: -1.5,
+        width: width,
+        highlighted: c.walkProposed,
+        onTap: _startWalk,
+      ),
+      if (treats > 0)
+        StickerButton(
+          compact: compact,
+          cut: 'box',
+          icon: 'bone',
+          label: '간식 $treats',
+          tilt: 2.5,
+          width: width,
+          onTap: c.giveTreat,
         ),
+    ];
+    return Padding(
+      padding: EdgeInsets.fromLTRB(14, compact ? 2 : 12, 14, 0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [for (final button in buttons) Flexible(child: button)],
       ),
     );
   }
@@ -1093,15 +1170,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 몇 시간 비웠다 오면 방 오른쪽 위에 뜨는 홈캠. 누르면 비운 사이 장면을 다시 본다.
-  Widget _homeCamButton(PetController c) {
+  Widget _homeCamButton(PetController c, {required bool compact}) {
     if (c.homeCam.isEmpty || c.replaying || c.out || c.walking) {
       return const SizedBox();
     }
     // 오른쪽 위 모서리는 폴라로이드 테이프가 덮어서 위 가운데에 둔다.
     return Positioned(
-      top: 10,
-      left: 0,
-      right: 0,
+      top: compact ? 4 : 10,
+      left: compact ? 6 : 0,
+      right: compact ? null : 0,
       child: Center(
         child: Material(
           color: const Color(0xE62F3A3F),
@@ -1352,7 +1429,7 @@ class _Header extends StatelessWidget {
         padding: const EdgeInsets.only(left: 14, right: 10),
         child: Row(
           children: [
-            _portrait(pet.portraitPath),
+            _portrait(pet),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -1434,24 +1511,46 @@ class _Header extends StatelessWidget {
     ],
   );
 
-  Widget _portrait(String? path) {
-    final file = path == null ? null : File(path);
-    return Container(
-      width: 56,
-      height: 56,
-      padding: const EdgeInsets.all(3),
-      decoration: _disc,
-      child: ClipOval(
-        child: file != null && file.existsSync()
-            ? Image.file(
-                file,
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.none,
-              )
-            : const ColoredBox(
-                color: Color(0xFFF7E5D6),
-                child: Center(child: PixelIcon('smile', scale: 3)),
-              ),
+  Widget _portrait(Pet pet) {
+    final path = pet.portraitPath;
+    final preview = ColoredBox(
+      color: const Color(0xFFF7E5D6),
+      child: OverflowBox(
+        maxWidth: 64,
+        maxHeight: 64,
+        child: PetSpritePreview(
+          shape: pet.shape,
+          colors: PetColors(
+            main: pet.furMain,
+            second: pet.furSecond,
+            marking: pet.marking,
+          ),
+          stage: pet.stage,
+          accent: pet.accent,
+          dimension: 64,
+          sitting: true,
+        ),
+      ),
+    );
+    return Semantics(
+      image: true,
+      label: '${pet.name}의 모습',
+      excludeSemantics: true,
+      child: Container(
+        width: 56,
+        height: 56,
+        padding: const EdgeInsets.all(3),
+        decoration: _disc,
+        child: ClipOval(
+          child: path == null || path.isEmpty
+              ? preview
+              : Image.file(
+                  File(path),
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.none,
+                  errorBuilder: (_, _, _) => preview,
+                ),
+        ),
       ),
     );
   }

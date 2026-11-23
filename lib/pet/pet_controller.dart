@@ -1081,8 +1081,7 @@ class PetController extends ChangeNotifier {
     unawaited(_tracked(operation).then<void>((_) {}));
   }
 
-  /// 초기화는 기존 기록에 쓰는 일이 모두 끝난 뒤에만 삭제한다. 연습 전환의 10초 대기는
-  /// 최대 20초 AI 응답보다 짧아 이 경로에서는 상한 없이 실제 완료를 기다린다.
+  /// 기록을 초기화하거나 다른 펫 DB로 전환하기 전에 새 입력을 막고 이미 시작한 저장을 끝낸다.
   Future<void> prepareReset() {
     if (_resetDrain != null) return _resetDrain!;
     sleepApp();
@@ -1108,7 +1107,7 @@ class PetController extends ChangeNotifier {
     await _db.customSelect('SELECT 1').get();
   }
 
-  /// DB 삭제가 실패하면 아직 살아 있는 같은 펫으로 돌아간다.
+  /// 기록 삭제나 DB 전환에 실패하면 아직 살아 있는 같은 펫으로 돌아간다.
   void cancelReset() {
     _resetPending = false;
     _resetDrain = null;
@@ -3504,10 +3503,22 @@ class PetController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Stream<List<Memory>> watchMemoryNotebook(int limit) =>
+      _db.watchMemoryNotebook(limit);
+
+  Future<MemoryPinResult> setMemoryPinned(int id, bool pinned) =>
+      _disposed || _resetPending
+      ? Future.value(MemoryPinResult.missing)
+      : _tracked(_db.setMemoryPinned(id, pinned));
+
+  Future<bool> forgetMemory(int id) => _disposed || _resetPending
+      ? Future.value(false)
+      : _tracked(_db.forgetMemory(id));
+
   Future<List<String>> _memoryLines() async {
     final today = _dateOnly(_clock());
     return [
-      for (final m in await _db.recentMemories(5))
+      for (final m in await _db.conversationMemories())
         '(${_relativeDay(today.difference(_dateOnly(m.createdAt)).inDays)}) ${m.content}',
     ];
   }

@@ -10,8 +10,8 @@ import 'package:mypet/pet/treasure.dart';
 import 'package:mypet/pet/tricks.dart';
 
 void main() {
-  // 유저 폰에는 v4 데이터가 있다. v5~v30을 한 번에 거쳐 올라가도 펫과 일기가 남아야 한다.
-  test('v4 DB가 v30으로 한 번에 올라가도 펫과 일기가 그대로 남는다', () async {
+  // 유저 폰에는 v4 데이터가 있다. v5~v31을 한 번에 거쳐 올라가도 펫과 일기가 남아야 한다.
+  test('v4 DB가 v31로 한 번에 올라가도 펫과 일기가 그대로 남는다', () async {
     final db = AppDatabase(
       NativeDatabase.memory(
         setup: (raw) {
@@ -142,6 +142,7 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     await db.customStatement(
       'ALTER TABLE pets DROP COLUMN daycare_recital_stats',
     );
+    await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
     await db.customStatement('PRAGMA user_version = 25');
     await db.close();
 
@@ -174,6 +175,7 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     await db.customStatement(
       'ALTER TABLE pets DROP COLUMN daycare_recital_stats',
     );
+    await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
     await db.customStatement('PRAGMA user_version = 27');
     await db.close();
 
@@ -190,6 +192,35 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       ),
     );
     expect((await db.kinderPhotoOn('2026-10-04'))!.scene, 'nap');
+  });
+
+  test('v30 기억과 일기를 보존해 다시 열고 고정과 선택 삭제를 저장한다', () async {
+    final dir = Directory.systemTemp.createTempSync('mypet_memory_migration_');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/synthetic.sqlite');
+    final at = DateTime(2026, 11, 24);
+    var db = AppDatabase(NativeDatabase(file));
+    await db.addMemory('강변 산책을 좋아한다.', at);
+    await db.addMemory('치즈 냄새를 좋아한다.', at);
+    await db.addDiary('2026-11-23', '같이 산책했다.', at);
+    await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
+    await db.customStatement('PRAGMA user_version = 30');
+    await db.close();
+
+    db = AppDatabase(NativeDatabase(file));
+    final old = await db.conversationMemories();
+    expect(old.map((m) => m.pinned), [false, false]);
+    expect(old.first.content, '치즈 냄새를 좋아한다.');
+    expect(await db.setMemoryPinned(old.last.id, true), MemoryPinResult.saved);
+    expect(await db.forgetMemory(old.first.id), isTrue);
+    await db.close();
+
+    db = AppDatabase(NativeDatabase(file));
+    addTearDown(db.close);
+    final kept = (await db.conversationMemories()).single;
+    expect(kept.content, '강변 산책을 좋아한다.');
+    expect(kept.pinned, isTrue);
+    expect((await db.allDiaries()).single.content, '같이 산책했다.');
   });
 
   // v11에 쓰지 않는 종 칸을 넣었고, v12에서 일기에 AI 표시 칸을 더했다.
@@ -211,6 +242,7 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     await db.customStatement(
       'ALTER TABLE pets DROP COLUMN daycare_recital_stats',
     );
+    await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
     await db.customStatement('PRAGMA user_version = 29');
     await db.close();
     db = AppDatabase(NativeDatabase(file));
@@ -223,7 +255,7 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   });
 
   for (final version in [11, 12]) {
-    test('v$version DB가 v30으로 올라가면 종 칸은 지우고 펫과 일기는 그대로 둔다', () async {
+    test('v$version DB가 v31로 올라가면 종 칸은 지우고 펫과 일기는 그대로 둔다', () async {
       final dir = Directory.systemTemp.createTempSync('mypet_');
       addTearDown(() => dir.deleteSync(recursive: true));
       final file = File('${dir.path}/mypet.sqlite');
@@ -277,6 +309,7 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       await db.customStatement('DROP TABLE friends');
       await db.customStatement('DROP TABLE known_dogs');
       await db.customStatement('DROP TABLE kinder_photos');
+      await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
       await db.customStatement('PRAGMA user_version = $version');
       await db.close();
 

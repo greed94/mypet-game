@@ -49,7 +49,8 @@ void main() {
       now: DateTime(2026, 9, 1),
     );
     final mode = await TestMode.load(file);
-    await mode.enter(real, '${dir.path}/mypet_test.sqlite');
+    await TestMode.copyForPractice(real, '${dir.path}/mypet_test.sqlite');
+    await mode.select(true);
     expect(mode.on, isTrue);
     expect(mode.dbName, TestMode.testDb);
     final again = await TestMode.load(file);
@@ -74,7 +75,8 @@ void main() {
     final mode = TestMode(File('${dir.path}/test_mode.json'));
     // 예전에 남은 연습 파일이 있어도 새로 복사한다.
     File(testPath).writeAsStringSync('old');
-    await mode.enter(real, testPath);
+    await TestMode.copyForPractice(real, testPath);
+    await mode.select(true);
 
     final copy = AppDatabase(NativeDatabase(File(testPath)));
     final copied = (await copy.loadPet())!;

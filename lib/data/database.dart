@@ -122,10 +122,16 @@ class Pets extends Table {
   RealColumn get lastWeight => real().nullable()();
 }
 
+// 한 대화에 넘겨 온 기억 수. 고정한 기억부터 이 자리를 채운다.
+const conversationMemoryLimit = 5;
+
+enum MemoryPinResult { saved, full, missing }
+
 class Memories extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get content => text()();
   DateTimeColumn get createdAt => dateTime()();
+  BoolColumn get pinned => boolean().withDefault(const Constant(false))();
 }
 
 /// 그날 있었던 일. 일기의 재료다.
@@ -266,7 +272,7 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'mypet'));
 
   @override
-  int get schemaVersion => 30;
+  int get schemaVersion => 31;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -359,6 +365,8 @@ class AppDatabase extends _$AppDatabase {
       if (from < 28) await m.createTable(kinderPhotos);
       if (from < 29) await m.addColumn(pets, pets.treatShares);
       if (from < 30) await m.addColumn(pets, pets.daycareRecitalStats);
+      // v3 전이면 위에서 현재 형태로 기억 표를 처음 만든다.
+      if (from >= 3 && from < 31) await m.addColumn(memories, memories.pinned);
       // Drift의 바깥 버전 저장 전에 종료돼도 칸과 버전이 함께 남아야 한다.
       await customStatement('PRAGMA user_version = $to');
     }),
@@ -411,9 +419,49 @@ class AppDatabase extends _$AppDatabase {
 
   Future<List<Memory>> recentMemories(int limit) =>
       (select(memories)
-            ..orderBy([(m) => OrderingTerm.desc(m.createdAt)])
+            ..orderBy([
+              (m) => OrderingTerm.desc(m.createdAt),
+              (m) => OrderingTerm.desc(m.id),
+            ])
             ..limit(limit))
           .get();
+
+  SimpleSelectStatement<$MemoriesTable, Memory> _notebook() =>
+      select(memories)..orderBy([
+        (m) => OrderingTerm.desc(m.pinned),
+        (m) => OrderingTerm.desc(m.createdAt),
+        (m) => OrderingTerm.desc(m.id),
+      ]);
+
+  Stream<List<Memory>> watchMemoryNotebook(int limit) =>
+      (_notebook()..limit(limit)).watch();
+
+  Future<List<Memory>> conversationMemories() =>
+      (_notebook()..limit(conversationMemoryLimit)).get();
+
+  Future<MemoryPinResult> setMemoryPinned(int id, bool pinned) =>
+      transaction(() async {
+        final entry = await (select(
+          memories,
+        )..where((m) => m.id.equals(id))).getSingleOrNull();
+        if (entry == null) return MemoryPinResult.missing;
+        if (entry.pinned == pinned) return MemoryPinResult.saved;
+        if (pinned) {
+          final total = memories.id.count();
+          final query = selectOnly(memories)
+            ..addColumns([total])
+            ..where(memories.pinned.equals(true));
+          final count = (await query.getSingle()).read(total) ?? 0;
+          if (count >= conversationMemoryLimit) return MemoryPinResult.full;
+        }
+        await (update(memories)..where((m) => m.id.equals(id))).write(
+          MemoriesCompanion(pinned: Value(pinned)),
+        );
+        return MemoryPinResult.saved;
+      });
+
+  Future<bool> forgetMemory(int id) async =>
+      await (delete(memories)..where((m) => m.id.equals(id))).go() == 1;
 
   // 펫 저장과 함께 남겨, 권한 창에서 프로세스가 끝나도 다음 시작에서 인사를 이어 간다.
   static const _pendingMeeting = 'first_meeting_pending';

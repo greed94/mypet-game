@@ -7,10 +7,16 @@ import '../pet/pet_controller.dart';
 /// 테스트 빌드 전용 연습 모드. 켜면 지금 펫을 복사한 연습 펫(mypet_test DB)으로 바꾸고,
 /// 그 펫의 시계만 앞으로 보낼 수 있다. 진짜 펫의 기록과 시계는 그대로 둔다.
 class TestMode {
-  TestMode(this._file, {this.on = false, this.offset = Duration.zero});
+  TestMode(
+    this._file, {
+    this.on = false,
+    this.offset = Duration.zero,
+    File? stagingFile,
+  }) : _stagingFile = stagingFile ?? File('${_file.path}.next');
 
   /// 상태를 적어 두는 파일(앱 문서 폴더의 test_mode.json). 앱을 다시 켜도 연습 펫과 보낸 시간이 이어진다.
   final File _file;
+  final File _stagingFile;
   bool on;
 
   /// 실제 시각보다 앞선 만큼. 앞으로만 간다.
@@ -36,26 +42,29 @@ class TestMode {
     }
   }
 
-  Future<void> _save() => _file.writeAsString(
-    jsonEncode({'on': on, 'offsetMinutes': offset.inMinutes}),
-  );
-
-  /// 연습 펫으로 바꾼다. [real]을 [testPath]로 통째로 복사한다(열려 있는 채로 일관된 사본이 된다).
-  Future<void> enter(AppDatabase real, String testPath) async {
+  /// 실제 기록을 [testPath]에 통째로 복사한다. 새 DB가 열리는 것을 확인한 뒤 select로 전환한다.
+  static Future<void> copyForPractice(AppDatabase real, String testPath) async {
     for (final suffix in ['', '-wal', '-shm', '-journal']) {
       final f = File('$testPath$suffix');
       if (f.existsSync()) f.deleteSync();
     }
     await real.customStatement('VACUUM INTO ?', [testPath]);
-    on = true;
-    offset = Duration.zero;
-    await _save();
   }
 
-  Future<void> leave() async {
-    on = false;
+  // 기록이 중간에 끊겨도 다음 실행이 마지막으로 완전히 저장된 상태를 읽도록 한다.
+  Future<void> _persist(bool practice, Duration ahead) async {
+    await _stagingFile.writeAsString(
+      jsonEncode({'on': practice, 'offsetMinutes': ahead.inMinutes}),
+      flush: true,
+    );
+    await _stagingFile.rename(_file.path);
+  }
+
+  /// 파일을 쓰지 못하면 현재 펫과 시계를 유지해 다시 시도할 수 있다.
+  Future<void> select(bool practice) async {
+    await _persist(practice, Duration.zero);
+    on = practice;
     offset = Duration.zero;
-    await _save();
   }
 
   /// 산책 중이나 카페·가게·병원에 있을 땐 시간을 보내지 않는다. 그 장소엔 돌아올 시각이 없어
@@ -67,9 +76,7 @@ class TestMode {
   Future<void> jump(PetController c, Duration d) async {
     if (!on || d <= Duration.zero || !canJump(c)) return;
     final next = offset + d;
-    await _file.writeAsString(
-      jsonEncode({'on': on, 'offsetMinutes': next.inMinutes}),
-    );
+    await _persist(on, next);
     // 여기부터 wake까지 await가 없어야 한다. 사이에 게임 tick이 앞당긴 시계로 하원·저장을 먼저 하면
     // 보낸 시간이 통째로 사라진다.
     c.sleepApp();

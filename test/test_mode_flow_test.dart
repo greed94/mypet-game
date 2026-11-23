@@ -14,10 +14,12 @@ import 'package:mypet/main.dart';
 import 'package:mypet/pet/pet_rules.dart';
 import 'package:mypet/services/test_mode.dart';
 import 'package:mypet/ui/home_screen.dart';
+import 'package:mypet/ui/memory_notebook.dart';
 
 class _DelayedModeFile implements File {
   _DelayedModeFile(this.file);
   final File file;
+  File get staging => File('${file.path}.next');
   final started = Completer<void>();
   final release = Completer<void>();
   final writes = <Map<String, dynamic>>[];
@@ -34,9 +36,12 @@ class _DelayedModeFile implements File {
     if (writes.length == 1) {
       started.complete();
       await release.future;
-      if (failFirst) throw FileSystemException('Synthetic write failure');
+      if (failFirst) {
+        await staging.writeAsString('{', flush: true);
+        throw FileSystemException('Synthetic partial write');
+      }
     }
-    return file.writeAsString(
+    return staging.writeAsString(
       contents,
       mode: mode,
       encoding: encoding,
@@ -45,7 +50,20 @@ class _DelayedModeFile implements File {
   }
 
   @override
+  Future<File> rename(String newPath) => staging.rename(newPath);
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _CloseFailureDatabase extends AppDatabase {
+  _CloseFailureDatabase() : super(NativeDatabase.memory());
+
+  @override
+  Future<void> close() async {
+    await super.close();
+    throw StateError('Synthetic previous connection close failure');
+  }
 }
 
 class _Session {
@@ -76,7 +94,11 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
-  Future<_Session> mount(WidgetTester tester) async {
+  Future<_Session> mount(
+    WidgetTester tester, {
+    Duration savedOffset = Duration.zero,
+    bool failPreviousClose = false,
+  }) async {
     final dir = Directory.systemTemp.createTempSync('mypet_time_flow_');
     addTearDown(() => dir.deleteSync(recursive: true));
     FlutterSecureStorage.setMockInitialValues({'steps_asked': 'true'});
@@ -102,7 +124,9 @@ void main() {
       );
       await real.customStatement('VACUUM INTO ?', ['${dir.path}/mypet.sqlite']);
       await real.close();
-      final db = AppDatabase(NativeDatabase.memory());
+      final db = failPreviousClose
+          ? _CloseFailureDatabase()
+          : AppDatabase(NativeDatabase.memory());
       final pet = await db.createPet(
         name: '콩이',
         stage: PetStage.adult,
@@ -112,7 +136,15 @@ void main() {
         now: base,
       );
       final file = _DelayedModeFile(File('${dir.path}/test_mode.json'));
-      return (db, pet, TestMode(file, on: true), file);
+      await file.file.writeAsString(
+        jsonEncode({'on': true, 'offsetMinutes': savedOffset.inMinutes}),
+      );
+      return (
+        db,
+        pet,
+        TestMode(file.file, on: true, offset: savedOffset, stagingFile: file),
+        file,
+      );
     }))!;
     final (db, pet, mode, file) = prepared;
     await tester.runAsync(
@@ -226,6 +258,110 @@ void main() {
     expect(session.file.writes.single['on'], isFalse);
     expect(session.mode.on, isFalse);
     expect(session.mode.offset, Duration.zero);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('전환 중에는 이전 수첩과 삭제 확인을 닫고 홈 입력을 가린다', (tester) async {
+    final session = await mount(tester);
+    final old = session.home.controller;
+    final memory = (await tester.runAsync(() async {
+      await session.home.db.addMemory('연습 수첩 합성 항목', DateTime(2026, 11, 20));
+      return (await session.home.db.recentMemories(1)).single;
+    }))!;
+    await tester.tap(find.text('도감').hitTestable());
+    await tester.pump();
+    await tester.tap(find.text('기억 수첩').hitTestable());
+    for (var i = 0; i < 12; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 35));
+    }
+    await tester.tap(find.byTooltip('기억 지우기'));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('이 기억을 지울까요?'), findsOneWidget);
+    late Future<void> leaving;
+    await tester.runAsync(() async {
+      leaving = session.leave();
+      await session.file.started.future;
+    });
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('펫을 불러오고 있어요.'), findsOneWidget);
+    expect(find.byType(MemoryNotebook).hitTestable(), findsNothing);
+    expect(find.text('이 기억을 지울까요?').hitTestable(), findsNothing);
+    expect(find.text('기억 수첩').hitTestable(), findsNothing);
+    expect(old.isResetting, isTrue);
+    expect(await tester.runAsync(() => old.forgetMemory(memory.id)), isFalse);
+    expect(
+      (await tester.runAsync(
+        () => session.home.db.recentMemories(1),
+      ))!.single.id,
+      memory.id,
+    );
+    await tester.runAsync(() async {
+      session.file.release.complete();
+      await leaving;
+    });
+    await tester.pump();
+    session.active = tester.widget<HomeScreen>(find.byType(HomeScreen));
+    expect(old.isDisposed, isTrue);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    expect(find.byType(MemoryNotebook), findsNothing);
+    expect(find.text('이 기억을 지울까요?'), findsNothing);
+    expect(
+      await tester.runAsync(() => session.active.db.recentMemories(1)),
+      isEmpty,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('모드 파일 저장 실패는 연습 펫과 앞선 시계를 보존하고 다시 전환할 수 있다', (tester) async {
+    final session = await mount(tester, savedOffset: const Duration(hours: 3));
+    session.file.failFirst = true;
+    final old = session.home.controller;
+    await tester.runAsync(() async {
+      final first = session.leave();
+      await session.file.started.future;
+      session.file.release.complete();
+      await first;
+    });
+    await tester.pump();
+    expect(find.text('펫을 바꾸지 못했어요. 다시 시도해 주세요.'), findsOneWidget);
+    expect(session.mode.on, isTrue);
+    expect(session.mode.offset, const Duration(hours: 3));
+    final reopened = (await tester.runAsync(
+      () => TestMode.load(session.file.file),
+    ))!;
+    expect(reopened.on, isTrue);
+    expect(reopened.offset, const Duration(hours: 3));
+    expect(old.isResetting, isFalse);
+    expect(old.isDisposed, isFalse);
+    await tester.runAsync(session.leave);
+    await tester.pump();
+    session.active = tester.widget<HomeScreen>(find.byType(HomeScreen));
+    expect(session.mode.on, isFalse);
+    expect(session.active.controller, isNot(same(old)));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('이전 연결 정리가 실패해도 이미 돌아온 실제 펫에 전환 실패 안내가 뜨지 않는다', (tester) async {
+    final session = await mount(tester, failPreviousClose: true);
+    await tester.runAsync(() async {
+      final leaving = session.leave();
+      await session.file.started.future;
+      session.file.release.complete();
+      await leaving;
+    });
+    await tester.pump();
+    session.active = tester.widget<HomeScreen>(find.byType(HomeScreen));
+    expect(session.active.controller, isNot(same(session.home.controller)));
+    expect(
+      (await tester.runAsync(() => TestMode.load(session.file.file)))!.on,
+      isFalse,
+    );
+    expect(find.text('펫을 바꾸지 못했어요. 다시 시도해 주세요.'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

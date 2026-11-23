@@ -1,11 +1,9 @@
 // 실제 앱 화면과 합성 펫을 사용해 첫 만남부터 다음 날 일기까지 녹화한다.
 // flutter test tools/scene_preview/first_day_showcase_test.dart
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mypet/data/database.dart';
@@ -14,6 +12,7 @@ import 'package:mypet/pet/pet_controller.dart';
 import 'package:mypet/services/test_mode.dart';
 import 'package:mypet/ui/home_screen.dart';
 
+import 'capture_preview.dart';
 import 'preview_fonts.dart';
 
 void main() {
@@ -78,23 +77,12 @@ void main() {
         const frame = Duration(milliseconds: 83);
         now = now.add(frame);
         await tester.pump(frame);
-        final boundary = tester.renderObject<RenderRepaintBoundary>(
-          find.byKey(screen),
-        );
         final number = index.toString().padLeft(4, '0');
-        await tester.runAsync(() async {
-          final image = await boundary.toImage(pixelRatio: 1.5);
-          try {
-            final png = (await image.toByteData(
-              format: ui.ImageByteFormat.png,
-            ))!;
-            await File(
-              '${frames.path}/frame$number.png',
-            ).writeAsBytes(png.buffer.asUint8List());
-          } finally {
-            image.dispose();
-          }
-        });
+        await capturePreview(
+          tester,
+          find.byKey(screen),
+          File('${frames.path}/frame$number.png'),
+        );
         index++;
       }
       expect(tester.takeException(), isNull);

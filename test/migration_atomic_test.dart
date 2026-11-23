@@ -59,6 +59,7 @@ void main() {
       await db.customStatement(
         'ALTER TABLE pets DROP COLUMN daycare_recital_stats',
       );
+      await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
       await db.customStatement('PRAGMA user_version = 28');
     } finally {
       await db.close();
@@ -103,7 +104,7 @@ void main() {
         (await retry.customSelect('PRAGMA user_version').getSingle()).read<int>(
           'user_version',
         ),
-        30,
+        retry.schemaVersion,
       );
     } finally {
       await retry.close();
@@ -125,7 +126,7 @@ void main() {
         (await retry.customSelect('PRAGMA user_version').getSingle()).read<int>(
           'user_version',
         ),
-        30,
+        retry.schemaVersion,
       );
     } finally {
       await retry.close();

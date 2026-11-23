@@ -231,6 +231,33 @@ void main() {
       );
     });
 
+    test('고정한 옛 기억이 다음 대화에 들어가고 지운 기억은 다음 요청에서 빠진다', () async {
+      final c = await make(
+        reply: respond(answer({...comfort, 'memory': null}), 200),
+      );
+      for (var i = 1; i <= 7; i++) {
+        await db.addMemory('산책길$i', now.subtract(Duration(days: 8 - i)));
+      }
+      final oldest = (await db.recentMemories(7)).last;
+      expect(await c.setMemoryPinned(oldest.id, true), MemoryPinResult.saved);
+      c.wake();
+      Future<String> prompt() async {
+        await c.talk('나 왔어');
+        final body = jsonDecode(sent.last.body) as Map<String, dynamic>;
+        return (body['messages'] as List).last['content'] as String;
+      }
+
+      final withPin = await prompt();
+      expect(withPin, contains('산책길1'));
+      expect(withPin, contains('산책길7'));
+      expect(withPin, isNot(contains('산책길2')));
+      expect(withPin, isNot(contains('산책길3')));
+      await c.forgetMemory(oldest.id);
+      final after = await prompt();
+      expect(after, isNot(contains('산책길1')));
+      expect(after, contains('산책길3'));
+    });
+
     test('기운이 바닥이면 AI가 놀자고 해도 옆에 엎드린다', () async {
       final c = await make(
         reply: respond(

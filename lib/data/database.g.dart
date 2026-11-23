@@ -3276,8 +3276,21 @@ class $MemoriesTable extends Memories with TableInfo<$MemoriesTable, Memory> {
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _pinnedMeta = const VerificationMeta('pinned');
   @override
-  List<GeneratedColumn> get $columns => [id, content, createdAt];
+  late final GeneratedColumn<bool> pinned = GeneratedColumn<bool>(
+    'pinned',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("pinned" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, content, createdAt, pinned];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3309,6 +3322,12 @@ class $MemoriesTable extends Memories with TableInfo<$MemoriesTable, Memory> {
     } else if (isInserting) {
       context.missing(_createdAtMeta);
     }
+    if (data.containsKey('pinned')) {
+      context.handle(
+        _pinnedMeta,
+        pinned.isAcceptableOrUnknown(data['pinned']!, _pinnedMeta),
+      );
+    }
     return context;
   }
 
@@ -3330,6 +3349,10 @@ class $MemoriesTable extends Memories with TableInfo<$MemoriesTable, Memory> {
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
       )!,
+      pinned: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}pinned'],
+      )!,
     );
   }
 
@@ -3343,10 +3366,12 @@ class Memory extends DataClass implements Insertable<Memory> {
   final int id;
   final String content;
   final DateTime createdAt;
+  final bool pinned;
   const Memory({
     required this.id,
     required this.content,
     required this.createdAt,
+    required this.pinned,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3354,6 +3379,7 @@ class Memory extends DataClass implements Insertable<Memory> {
     map['id'] = Variable<int>(id);
     map['content'] = Variable<String>(content);
     map['created_at'] = Variable<DateTime>(createdAt);
+    map['pinned'] = Variable<bool>(pinned);
     return map;
   }
 
@@ -3362,6 +3388,7 @@ class Memory extends DataClass implements Insertable<Memory> {
       id: Value(id),
       content: Value(content),
       createdAt: Value(createdAt),
+      pinned: Value(pinned),
     );
   }
 
@@ -3374,6 +3401,7 @@ class Memory extends DataClass implements Insertable<Memory> {
       id: serializer.fromJson<int>(json['id']),
       content: serializer.fromJson<String>(json['content']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      pinned: serializer.fromJson<bool>(json['pinned']),
     );
   }
   @override
@@ -3383,19 +3411,27 @@ class Memory extends DataClass implements Insertable<Memory> {
       'id': serializer.toJson<int>(id),
       'content': serializer.toJson<String>(content),
       'createdAt': serializer.toJson<DateTime>(createdAt),
+      'pinned': serializer.toJson<bool>(pinned),
     };
   }
 
-  Memory copyWith({int? id, String? content, DateTime? createdAt}) => Memory(
+  Memory copyWith({
+    int? id,
+    String? content,
+    DateTime? createdAt,
+    bool? pinned,
+  }) => Memory(
     id: id ?? this.id,
     content: content ?? this.content,
     createdAt: createdAt ?? this.createdAt,
+    pinned: pinned ?? this.pinned,
   );
   Memory copyWithCompanion(MemoriesCompanion data) {
     return Memory(
       id: data.id.present ? data.id.value : this.id,
       content: data.content.present ? data.content.value : this.content,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      pinned: data.pinned.present ? data.pinned.value : this.pinned,
     );
   }
 
@@ -3404,46 +3440,53 @@ class Memory extends DataClass implements Insertable<Memory> {
     return (StringBuffer('Memory(')
           ..write('id: $id, ')
           ..write('content: $content, ')
-          ..write('createdAt: $createdAt')
+          ..write('createdAt: $createdAt, ')
+          ..write('pinned: $pinned')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, content, createdAt);
+  int get hashCode => Object.hash(id, content, createdAt, pinned);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Memory &&
           other.id == this.id &&
           other.content == this.content &&
-          other.createdAt == this.createdAt);
+          other.createdAt == this.createdAt &&
+          other.pinned == this.pinned);
 }
 
 class MemoriesCompanion extends UpdateCompanion<Memory> {
   final Value<int> id;
   final Value<String> content;
   final Value<DateTime> createdAt;
+  final Value<bool> pinned;
   const MemoriesCompanion({
     this.id = const Value.absent(),
     this.content = const Value.absent(),
     this.createdAt = const Value.absent(),
+    this.pinned = const Value.absent(),
   });
   MemoriesCompanion.insert({
     this.id = const Value.absent(),
     required String content,
     required DateTime createdAt,
+    this.pinned = const Value.absent(),
   }) : content = Value(content),
        createdAt = Value(createdAt);
   static Insertable<Memory> custom({
     Expression<int>? id,
     Expression<String>? content,
     Expression<DateTime>? createdAt,
+    Expression<bool>? pinned,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (content != null) 'content': content,
       if (createdAt != null) 'created_at': createdAt,
+      if (pinned != null) 'pinned': pinned,
     });
   }
 
@@ -3451,11 +3494,13 @@ class MemoriesCompanion extends UpdateCompanion<Memory> {
     Value<int>? id,
     Value<String>? content,
     Value<DateTime>? createdAt,
+    Value<bool>? pinned,
   }) {
     return MemoriesCompanion(
       id: id ?? this.id,
       content: content ?? this.content,
       createdAt: createdAt ?? this.createdAt,
+      pinned: pinned ?? this.pinned,
     );
   }
 
@@ -3471,6 +3516,9 @@ class MemoriesCompanion extends UpdateCompanion<Memory> {
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
+    if (pinned.present) {
+      map['pinned'] = Variable<bool>(pinned.value);
+    }
     return map;
   }
 
@@ -3479,7 +3527,8 @@ class MemoriesCompanion extends UpdateCompanion<Memory> {
     return (StringBuffer('MemoriesCompanion(')
           ..write('id: $id, ')
           ..write('content: $content, ')
-          ..write('createdAt: $createdAt')
+          ..write('createdAt: $createdAt, ')
+          ..write('pinned: $pinned')
           ..write(')'))
         .toString();
   }
@@ -7916,12 +7965,14 @@ typedef $$MemoriesTableCreateCompanionBuilder =
       Value<int> id,
       required String content,
       required DateTime createdAt,
+      Value<bool> pinned,
     });
 typedef $$MemoriesTableUpdateCompanionBuilder =
     MemoriesCompanion Function({
       Value<int> id,
       Value<String> content,
       Value<DateTime> createdAt,
+      Value<bool> pinned,
     });
 
 class $$MemoriesTableFilterComposer
@@ -7945,6 +7996,11 @@ class $$MemoriesTableFilterComposer
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get pinned => $composableBuilder(
+    column: $table.pinned,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -7972,6 +8028,11 @@ class $$MemoriesTableOrderingComposer
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get pinned => $composableBuilder(
+    column: $table.pinned,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$MemoriesTableAnnotationComposer
@@ -7991,6 +8052,9 @@ class $$MemoriesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<bool> get pinned =>
+      $composableBuilder(column: $table.pinned, builder: (column) => column);
 }
 
 class $$MemoriesTableTableManager
@@ -8024,20 +8088,24 @@ class $$MemoriesTableTableManager
                 Value<int> id = const Value.absent(),
                 Value<String> content = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
+                Value<bool> pinned = const Value.absent(),
               }) => MemoriesCompanion(
                 id: id,
                 content: content,
                 createdAt: createdAt,
+                pinned: pinned,
               ),
           createCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
                 required String content,
                 required DateTime createdAt,
+                Value<bool> pinned = const Value.absent(),
               }) => MemoriesCompanion.insert(
                 id: id,
                 content: content,
                 createdAt: createdAt,
+                pinned: pinned,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

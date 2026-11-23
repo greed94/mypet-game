@@ -16,6 +16,7 @@ import 'dress_up.dart';
 import 'item_icon.dart';
 import 'keep_words.dart';
 import 'known_dog_screen.dart';
+import 'memory_notebook.dart';
 
 /// 도감. 날짜 없이 개수만 보여 준다. 못 찾은 칸은 모양만 흐리게.
 class CollectionScreen extends StatelessWidget {
@@ -40,15 +41,20 @@ class CollectionScreen extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      '${controller.pet.name}의 보물',
+                      '${controller.pet.name}의 도감',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: C3Text.title.copyWith(fontSize: 26),
                     ),
                   ),
-                  Text(
-                    '$found / ${items.length}',
-                    style: C3Text.label.copyWith(color: C3Colors.ink2),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => MemoryNotebook(controller: controller),
+                      ),
+                    ),
+                    icon: const PixelIcon('book'),
+                    label: const Text('기억 수첩'),
                   ),
                 ],
               ),
@@ -154,8 +160,10 @@ class CollectionScreen extends StatelessWidget {
               const SizedBox(height: 10),
               _Tastes(tried: controller.treatsTried),
               const SizedBox(height: 22),
+              Text('동네에서 찾은 물건  $found / ${items.length}', style: C3Text.label),
+              const SizedBox(height: 4),
               Text(
-                keepWords('동네에서 주워 온 것들이에요. 누르면 방에 놓을 수 있어요.'),
+                keepWords('주워 온 물건을 누르면 방에 놓을 수 있어요.'),
                 style: C3Text.body.copyWith(fontSize: 13, color: C3Colors.ink2),
               ),
               for (final pool in ItemPool.values) ...[

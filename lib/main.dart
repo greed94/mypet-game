@@ -68,7 +68,7 @@ Future<Widget> _loadApp() async {
     // 연습 모드가 켜진 채인데 연습 펫이 없으면(파일만 남음) 처음 만들기 화면에 갇혀 끌 수가 없다. 진짜 펫으로 연다.
     if (testMode.on && !debugTime && await db.loadPet() == null) {
       await db.close();
-      await testMode.leave();
+      await testMode.select(false);
       db = AppDatabase(driftDatabase(name: testMode.dbName));
     }
     await Notifications.init();
@@ -164,6 +164,7 @@ class _MypetAppState extends State<MypetApp> {
   PetController? _controller;
   bool _resetting = false;
   final _messages = GlobalKey<ScaffoldMessengerState>();
+  final _navigation = GlobalKey<NavigatorState>();
   late AppDatabase _db = widget.db;
 
   @override
@@ -227,14 +228,22 @@ class _MypetAppState extends State<MypetApp> {
   Future<void> _setTestMode(bool on) async {
     final mode = widget.testMode;
     if (on == mode.on || _switching || _resetting) return;
-    _switching = true;
+    setState(() => _switching = true);
+    FocusManager.instance.primaryFocus?.unfocus();
+    _navigation.currentState?.popUntil((route) => route.isFirst);
     try {
       // 시간 저장 뒤의 wake까지 끝내야 이전 펫을 닫거나 모드 파일을 덮어쓸 수 있다.
       await _jumping?.then((_) {}, onError: (_) {});
       if (!mounted) return;
       await _switchTo(on);
+    } catch (_) {
+      if (mounted) {
+        _messages.currentState?.showSnackBar(
+          const SnackBar(content: Text('펫을 바꾸지 못했어요. 다시 시도해 주세요.')),
+        );
+      }
     } finally {
-      _switching = false;
+      if (mounted) setState(() => _switching = false);
     }
   }
 
@@ -242,28 +251,41 @@ class _MypetAppState extends State<MypetApp> {
     final mode = widget.testMode;
     final old = _controller;
     final oldDb = _db;
-    old?.sleepApp();
-    // 사본을 만든 뒤 기다리면, 하원 수업·발표회·일기가 원본에만 늦게 저장된다.
-    await old?.settled;
-    await oldDb.customSelect('SELECT 1').get();
-    if (!mounted) return;
-    if (on) {
-      await mode.enter(oldDb, '${widget.docs}/${TestMode.testDb}.sqlite');
-    } else {
-      await mode.leave();
+    AppDatabase? nextDb;
+    try {
+      await old?.prepareReset();
+      if (!mounted) return;
+      if (on) {
+        await TestMode.copyForPractice(
+          oldDb,
+          '${widget.docs}/${TestMode.testDb}.sqlite',
+        );
+      }
+      final db = nextDb = AppDatabase(
+        driftDatabase(name: on ? TestMode.testDb : TestMode.realDb),
+      );
+      final pet = await db.loadPet();
+      if (!mounted) return;
+      // 복사와 열기에 성공한 뒤에만 다음 실행이 사용할 모드를 저장한다.
+      await mode.select(on);
+      if (!mounted) return;
+      setState(() {
+        _db = db;
+        _controller = pet == null ? null : (_make(pet)..wake());
+      });
+      nextDb = null;
+    } finally {
+      if (identical(_db, oldDb)) old?.cancelReset();
+      await nextDb?.close();
     }
-    final db = AppDatabase(driftDatabase(name: mode.dbName));
-    final pet = await db.loadPet();
-    if (!mounted) return;
-    setState(() {
-      _db = db;
-      _controller = pet == null ? null : (_make(pet)..wake());
-    });
     Telemetry.track('test_mode', {'on': on});
-    // 바꾸는 동안 들어온 마지막 DB 일까지 끝난 뒤에 닫는다.
-    await oldDb.customSelect('SELECT 1').get();
     old?.dispose();
-    await oldDb.close();
+    try {
+      await oldDb.close();
+    } catch (_) {
+      // 새 펫과 파일은 이미 전환됐다. 이전 연결 정리 실패만 기록한다.
+      Telemetry.track('test_mode_previous_close_error');
+    }
   }
 
   Future<void> _jump(Duration d) async {
@@ -282,9 +304,11 @@ class _MypetAppState extends State<MypetApp> {
   @override
   Widget build(BuildContext context) {
     final c = _controller;
+    final busy = _resetting || _switching;
     return MaterialApp(
       title: '마이펫',
       scaffoldMessengerKey: _messages,
+      navigatorKey: _navigation,
       debugShowCheckedModeBanner: false,
       theme: buildC3Theme(),
       // C3 화면은 스티커·게이지 크기가 고정이라 시스템 글자 확대에서 넘친다. 출시 전 글자 확대 지원을 다시 본다.
@@ -292,63 +316,66 @@ class _MypetAppState extends State<MypetApp> {
         value: c3SystemBars,
         child: MediaQuery.withClampedTextScaling(
           maxScaleFactor: 1.0,
-          child: child!,
-        ),
-      ),
-      home: PopScope(
-        canPop: !_resetting,
-        child: Stack(
-          children: [
-            AbsorbPointer(
-              absorbing: _resetting,
-              child: ExcludeSemantics(
-                excluding: _resetting,
-                child: c == null
-                    ? OnboardingScreen(
-                        db: _db,
-                        weather: _weather,
-                        clock: widget.clock,
-                        onCreated: (pet) async {
-                          final meeting = await _db.beginFirstMeeting(
-                            widget.clock(),
-                          );
-                          if (!mounted) return;
-                          setState(
-                            () =>
-                                _controller = _make(pet)
-                                  ..wake(firstMeeting: meeting),
-                          );
-                        },
-                      )
-                    : HomeScreen(
-                        key: ValueKey(c),
-                        controller: c,
-                        db: _db,
-                        onReset: _reset,
-                        testMode: testModeAvailable ? widget.testMode : null,
-                        onTestMode: _setTestMode,
-                        onJump: _jump,
-                      ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ExcludeFocus(
+                excluding: busy,
+                child: ExcludeSemantics(
+                  excluding: busy,
+                  child: AbsorbPointer(absorbing: busy, child: child!),
+                ),
               ),
-            ),
-            if (_resetting)
-              const Positioned.fill(
-                child: ColoredBox(
+              if (busy)
+                Material(
                   color: C3Colors.paper,
                   child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(color: C3Colors.stamp),
-                        SizedBox(height: 20),
-                        Text('기록을 정리하고 있어요.', style: C3Text.body),
-                      ],
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(
+                            color: C3Colors.stamp,
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            _resetting ? '기록을 정리하고 있어요.' : '펫을 불러오고 있어요.',
+                            style: C3Text.body,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
+      ),
+      home: PopScope(
+        canPop: !busy,
+        child: c == null
+            ? OnboardingScreen(
+                db: _db,
+                weather: _weather,
+                clock: widget.clock,
+                onCreated: (pet) async {
+                  final meeting = await _db.beginFirstMeeting(widget.clock());
+                  if (!mounted) return;
+                  setState(
+                    () => _controller = _make(pet)..wake(firstMeeting: meeting),
+                  );
+                },
+              )
+            : HomeScreen(
+                key: ValueKey(c),
+                controller: c,
+                db: _db,
+                onReset: _reset,
+                testMode: testModeAvailable ? widget.testMode : null,
+                onTestMode: _setTestMode,
+                onJump: _jump,
+              ),
       ),
     );
   }

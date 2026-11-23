@@ -415,6 +415,26 @@ class AppDatabase extends _$AppDatabase {
             ..limit(limit))
           .get();
 
+  // 펫 저장과 함께 남겨, 권한 창에서 프로세스가 끝나도 다음 시작에서 인사를 이어 간다.
+  static const _pendingMeeting = 'first_meeting_pending';
+
+  Future<void> queueFirstMeeting(DateTime now) =>
+      addEvent(_pendingMeeting, '', now);
+
+  Future<bool> beginFirstMeeting(DateTime now) async {
+    final updated =
+        await (update(
+          events,
+        )..where((e) => e.kind.equals(_pendingMeeting))).write(
+          EventsCompanion(
+            kind: const Value('first_meeting'),
+            detail: const Value('처음으로 주인 냄새를 맡았다'),
+            at: Value(now),
+          ),
+        );
+    return updated > 0;
+  }
+
   Future<void> addEvent(String kind, String detail, DateTime at) => into(
     events,
   ).insert(EventsCompanion.insert(kind: kind, detail: detail, at: at));
@@ -429,7 +449,9 @@ class AppDatabase extends _$AppDatabase {
     return (select(events)
           ..where(
             (e) =>
-                e.at.isBiggerOrEqualValue(start) & e.at.isSmallerThanValue(end),
+                e.at.isBiggerOrEqualValue(start) &
+                e.at.isSmallerThanValue(end) &
+                e.kind.equals(_pendingMeeting).not(),
           )
           ..orderBy([(e) => OrderingTerm.asc(e.at)]))
         .get();

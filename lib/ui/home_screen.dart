@@ -104,6 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _toldAboutKey = false;
   bool _toldAboutAi = false;
   bool _toldAboutDaycare = false;
+  bool _checkingSteps = false;
 
   bool get _acceptsInput =>
       !widget.controller.isResetting && !widget.controller.isDisposed;
@@ -121,6 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _lifecycle = AppLifecycleListener(
       onPause: widget.controller.sleepApp,
       onRestart: widget.controller.wake,
+      onResume: _offerPocketSteps,
     );
     _seenDiary = widget.controller.diaryVersion;
     // 말을 듣는 동안 짖으면 음성 인식이 그 소리까지 받아 적는다.
@@ -131,7 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showFromNotification();
-      _askSteps();
+      _offerPocketSteps();
     });
     Notifications.opened.addListener(_showFromNotification);
   }
@@ -164,8 +166,33 @@ class _HomeScreenState extends State<HomeScreen> {
     if (to == null || !mounted) return;
     Notifications.opened.value = null;
     Telemetry.track('notification_open', {'to': to});
-    setState(() => _tab = to == 'diary' ? 1 : 0);
-    widget.controller.roomHidden = _tab != 0;
+    _selectTab(to == 'diary' ? 1 : 0);
+  }
+
+  void _selectTab(int index) {
+    setState(() => _tab = index);
+    widget.controller.roomHidden = index != 0;
+    if (index == 0) _offerPocketSteps();
+  }
+
+  // 처음 하루는 직접 산책을 시작할 때만 걸음 권한을 묻는다.
+  bool get _canOfferPocketSteps {
+    final c = widget.controller;
+    return _acceptsInput &&
+        _tab == 0 &&
+        !c.walking &&
+        c.now().difference(c.pet.bornAt) >= const Duration(days: 1) &&
+        ModalRoute.of(context)?.isCurrent == true;
+  }
+
+  Future<void> _offerPocketSteps() async {
+    if (!mounted || _checkingSteps || !_canOfferPocketSteps) return;
+    _checkingSteps = true;
+    try {
+      await _askSteps();
+    } finally {
+      _checkingSteps = false;
+    }
   }
 
   /// 주머니 걸음은 걸음 권한이 있어야 한다. 시스템 창보다 먼저 왜 필요한지 한 번만 묻는다.
@@ -182,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } on Exception {
       return;
     }
-    if (!mounted || !_acceptsInput) return;
+    if (!mounted || !_canOfferPocketSteps) return;
     final name = widget.controller.pet.name;
     final yes = await showC3Dialog<bool>(
       context,
@@ -652,8 +679,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Telemetry.track('tab', {
                       'to': const ['home', 'diary', 'collection'][i],
                     });
-                    setState(() => _tab = i);
-                    c.roomHidden = i != 0;
+                    _selectTab(i);
                   },
                 );
               },

@@ -49,6 +49,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   List<Place> _places = const [];
   Place? _chosen;
   bool _searching = false;
+  bool _dailyReminders = false;
   bool _creating = false;
   bool _finished = false;
   Pet? _createdPet;
@@ -176,8 +177,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           if (!mounted) return;
         }
         final now = (widget.clock ?? DateTime.now)();
-        _createdPet = await widget.db.transaction(
-          () => widget.db.createPet(
+        _createdPet = await widget.db.transaction(() async {
+          final pet = await widget.db.createPet(
             name: name,
             stage: stage,
             furMain: colors.main,
@@ -189,12 +190,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             latitude: chosen?.lat,
             longitude: chosen?.lon,
             portraitPath: portraitFile?.path,
-          ),
-        );
+          );
+          await widget.db.queueFirstMeeting(now);
+          return pet;
+        });
         if (!mounted) return;
         var granted = false;
         try {
-          granted = await Notifications.requestPermission();
+          if (_dailyReminders) {
+            granted = await Notifications.requestPermission();
+          }
         } on Exception {
           // 알림 실패가 이미 저장한 펫의 첫 시작을 막지 않게 한다.
         }
@@ -430,6 +435,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               '나중에 설정에서도 넣을 수 있어요. 전국 시·군·구 목록 © OpenStreetMap 기여자',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+          ),
+          const SizedBox(height: 12),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            title: const Text('아침·저녁 알림 받기'),
+            subtitle: const Text('아침에는 일기, 저녁에는 함께할 시간을 알려요.'),
+            value: _dailyReminders,
+            onChanged: _creating || _createdPet != null
+                ? null
+                : (value) => setState(() => _dailyReminders = value ?? false),
           ),
         ],
       ),

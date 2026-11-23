@@ -277,7 +277,7 @@ void main() {
     await tester.enterText(input, 'alpha');
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await drain(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(find.textContaining('고른 마을').hitTestable());
     await tester.pump();
     expect(find.textContaining('선택: '), findsOneWidget);
     await tester.enterText(input, 'bravo');
@@ -326,7 +326,7 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await drain(tester);
     expect(requests, 2);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(find.textContaining('새 마을').hitTestable());
     await tester.pump();
     expect(find.textContaining('선택: '), findsOneWidget);
     expect(find.text('시작하기'), findsOneWidget);

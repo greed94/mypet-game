@@ -14,7 +14,6 @@ import 'package:drift/native.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -25,28 +24,12 @@ import 'package:mypet/pet/pet_rules.dart';
 import 'package:mypet/pet/treasure.dart';
 import 'package:mypet/pet/tricks.dart';
 import 'package:mypet/services/weather.dart';
-import 'package:mypet/ui/c3/c3_theme.dart';
+import 'preview_fonts.dart';
 
 const _key = ValueKey('scene');
 
-Future<void> _loadFonts() async {
-  const families = {
-    C3Fonts.jua: ['Jua-Regular.ttf'],
-    C3Fonts.gowun: ['GowunDodum-Regular.ttf'],
-    C3Fonts.gaegu: ['Gaegu-Regular.ttf', 'Gaegu-Bold.ttf'],
-  };
-  for (final MapEntry(key: family, value: files) in families.entries) {
-    final loader = FontLoader(family);
-    for (final f in files) {
-      final bytes = File('assets/fonts/$f').readAsBytesSync();
-      loader.addFont(Future.value(ByteData.sublistView(bytes)));
-    }
-    await loader.load();
-  }
-}
-
 void main() {
-  setUpAll(_loadFonts);
+  setUpAll(loadPreviewFonts);
 
   /// [at] 시각에 [enter]로 장소에 들어가 [seconds]초 흐른 장면을 찍는다.
   Future<void> shoot(

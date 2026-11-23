@@ -19,6 +19,7 @@ import 'package:mypet/pet/guest.dart';
 import 'package:mypet/pet/pet_controller.dart';
 import 'package:mypet/pet/pet_rules.dart';
 import 'package:mypet/pet/tricks.dart';
+import 'package:mypet/services/notifications.dart';
 import 'package:mypet/services/test_mode.dart';
 import 'package:mypet/ui/c3/c3_theme.dart';
 import 'package:mypet/ui/c3/memo_input.dart';
@@ -113,6 +114,7 @@ void main() {
   Future<_Home> make(
     WidgetTester tester, {
     int paws = 10,
+    Duration age = const Duration(days: 5),
     String? pouch,
     Future<int?> Function()? readStepTotal,
   }) async {
@@ -128,7 +130,7 @@ void main() {
         furMain: 0xFFB5582E,
         furSecond: 0xFFF5EDE2,
         marking: 0xFF8A3A1A,
-        now: now.subtract(const Duration(days: 5)),
+        now: now.subtract(age),
       );
       pet = pet.copyWith(
         lastSeenAt: now,
@@ -332,6 +334,86 @@ void main() {
       await tester.pump();
     }
   }
+
+  testWidgets('처음 24시간은 걸음 권한 창 없이 펫을 만지고 산책을 직접 고를 수 있다', (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final home = await make(tester, age: const Duration(hours: 23));
+    await mount(tester, home);
+    expect(find.byType(Dialog), findsNothing);
+    expect(
+      find.widgetWithText(StickerButton, '산책 가기').hitTestable(),
+      findsOneWidget,
+    );
+    expect(
+      await tester.runAsync(
+        () => const FlutterSecureStorage().read(key: 'steps_asked'),
+      ),
+      isNull,
+    );
+  });
+
+  testWidgets('첫날 열어 둔 홈에 하루 뒤 돌아와도 걸음 안내는 한 번만 뜬다', (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final home = await make(tester, age: const Duration(hours: 23));
+    await mount(tester, home);
+    expect(find.byType(Dialog), findsNothing);
+    void resume() {
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+    }
+
+    home.now = home.now.add(const Duration(hours: 2));
+    await tester.runAsync(() async {
+      resume();
+      await pumpEventQueue();
+    });
+    await drainPermission(tester);
+    expect(find.text('좋아요'), findsOneWidget);
+    await tester.runAsync(() async {
+      resume();
+      await pumpEventQueue();
+    });
+    await drainPermission(tester);
+    expect(find.byType(Dialog), findsOneWidget);
+    await tester.tap(find.text('나중에'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await drainPermission(tester);
+    expect(find.byType(Dialog), findsNothing);
+  });
+
+  testWidgets('권한 상태 조회 중 아침 일기를 열면 집으로 돌아온 뒤 걸음 안내를 보여 준다', (tester) async {
+    final home = await make(tester);
+    FlutterSecureStorage.setMockInitialValues({});
+    final status = (await tester.runAsync(() async => Completer<int>()))!;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(permissions, (_) async => status.future);
+    await mount(tester, home);
+    Notifications.opened.value = 'diary';
+    await tester.pump();
+    expect(find.text('오늘 미리 보기').hitTestable(), findsOneWidget);
+
+    await tester.runAsync(() async {
+      status.complete(0);
+      await pumpEventQueue();
+    });
+    await drainPermission(tester);
+    expect(find.byType(Dialog), findsNothing);
+    await tester.tap(find.text('집').hitTestable());
+    await drainPermission(tester);
+    expect(find.text('좋아요'), findsOneWidget);
+    await tester.tap(find.text('나중에'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await drainPermission(tester);
+    expect(find.byType(Dialog), findsNothing);
+  });
 
   testWidgets('처음 안내 저장이 느려도 보지 않은 안내를 기록해 새 홈에서 생략하지 않는다', (tester) async {
     final home = await make(tester);

@@ -115,6 +115,7 @@ Future<Widget> _loadApp() async {
       clock: clock,
       testMode: testMode,
       docs: docs,
+      initialFirstMeeting: pet != null && await db.beginFirstMeeting(clock()),
     );
   } catch (_) {
     // 열지 못한 연결만 정리한다. 기록 파일과 연습 모드 상태를 초기화하지 않는다.
@@ -133,6 +134,7 @@ class MypetApp extends StatefulWidget {
     super.key,
     required this.db,
     required this.initialPet,
+    this.initialFirstMeeting = false,
     required this.systemPrompt,
     required this.diaryPrompt,
     required this.ai,
@@ -143,6 +145,7 @@ class MypetApp extends StatefulWidget {
 
   final AppDatabase db;
   final Pet? initialPet;
+  final bool initialFirstMeeting;
   final String systemPrompt;
   final String diaryPrompt;
   final AiConfig? ai;
@@ -167,7 +170,9 @@ class _MypetAppState extends State<MypetApp> {
   void initState() {
     super.initState();
     final pet = widget.initialPet;
-    if (pet != null) _controller = _make(pet)..wake();
+    if (pet != null) {
+      _controller = _make(pet)..wake(firstMeeting: widget.initialFirstMeeting);
+    }
   }
 
   PetController _make(Pet pet) => PetController(
@@ -303,8 +308,17 @@ class _MypetAppState extends State<MypetApp> {
                         db: _db,
                         weather: _weather,
                         clock: widget.clock,
-                        onCreated: (pet) async =>
-                            setState(() => _controller = _make(pet)..wake()),
+                        onCreated: (pet) async {
+                          final meeting = await _db.beginFirstMeeting(
+                            widget.clock(),
+                          );
+                          if (!mounted) return;
+                          setState(
+                            () =>
+                                _controller = _make(pet)
+                                  ..wake(firstMeeting: meeting),
+                          );
+                        },
                       )
                     : HomeScreen(
                         key: ValueKey(c),

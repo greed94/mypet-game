@@ -276,12 +276,24 @@ const hugeAfter = Duration(hours: 12);
   Duration away,
   DateTime now, {
   Duration threshold = greetAfter,
+  bool firstMeeting = false,
   bool? asleep,
   bool drowsy = false,
   double usual = 0,
   Traits traits = Traits.plain,
   Random? random,
 }) {
+  if (firstMeeting) {
+    return (
+      steps: const [
+        PetStep(Behavior.sniff, 1.7, cue: Cue.sniff, thought: '킁… 처음 맡는 냄새.'),
+        PetStep(Behavior.walk, 7, targetX: 0.5),
+        PetStep(Behavior.happy, 2, cue: Cue.yip),
+      ],
+      stats: s,
+      greeting: Greeting.hello,
+    );
+  }
   int pick(int n) => random == null ? 0 : random.nextInt(n);
   String line(List<String> lines) => lines[pick(lines.length)];
   final night = asleep ?? isNight(now);

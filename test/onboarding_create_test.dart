@@ -79,6 +79,7 @@ void main() {
   Future<void> mount(
     WidgetTester tester, {
     bool photo = false,
+    bool reminders = false,
     AppDatabase Function()? database,
   }) async {
     tester.view.physicalSize = const Size(1080, 6000);
@@ -146,6 +147,10 @@ void main() {
     await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
     await tester.pumpAndSettle();
+    if (reminders) {
+      await tester.tap(find.text('아침·저녁 알림 받기'));
+      await tester.pump();
+    }
   }
 
   Future<VoidCallback> start(WidgetTester tester) async => tester
@@ -156,7 +161,7 @@ void main() {
       (await tester.runAsync(() => db.select(db.pets).get()))!.length;
 
   testWidgets('생성 콜백을 연속 호출해도 펫과 권한 요청은 하나다', (tester) async {
-    await mount(tester);
+    await mount(tester, reminders: true);
     final permission = (await tester.runAsync(() async => Completer<bool>()))!;
     notificationReply = (call) async =>
         call.method == 'requestNotificationsPermission'
@@ -175,6 +180,17 @@ void main() {
     expect(requests, 1);
     expect(delivered, hasLength(1));
     expect(errors, isEmpty);
+  });
+
+  testWidgets('기본 선택으로 시작하면 알림 요청과 예약 없이 홈에 도착한다', (tester) async {
+    await mount(tester);
+    expect(
+      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+      false,
+    );
+    await invoke(tester, await start(tester));
+    expect(delivered, hasLength(1));
+    expect(calls, isEmpty);
   });
 
   testWidgets('실제 DB 쓰기 실패 뒤 안내하고 같은 입력으로 재시도한다', (tester) async {
@@ -199,7 +215,7 @@ void main() {
   });
 
   testWidgets('알림 권한 요청 실패도 저장된 펫의 시작을 막지 않는다', (tester) async {
-    await mount(tester);
+    await mount(tester, reminders: true);
     notificationReply = (call) async {
       if (call.method == 'requestNotificationsPermission') {
         throw PlatformException(code: 'synthetic-permission');
@@ -214,7 +230,7 @@ void main() {
   });
 
   testWidgets('알림 예약 실패도 펫을 다시 저장하지 않고 홈으로 이어간다', (tester) async {
-    await mount(tester);
+    await mount(tester, reminders: true);
     notificationReply = (call) async {
       if (call.method == 'zonedSchedule') {
         throw PlatformException(code: 'synthetic-schedule');
@@ -229,7 +245,7 @@ void main() {
   });
 
   testWidgets('알림 허용은 하루 두 예약 뒤 한 번만 홈으로 이어간다', (tester) async {
-    await mount(tester);
+    await mount(tester, reminders: true);
     notificationReply = (_) async => true;
     final action = await start(tester);
     await invoke(tester, action);
@@ -242,7 +258,7 @@ void main() {
   });
 
   testWidgets('홈 연결 실패 뒤 재시도해도 같은 펫과 초상화를 재사용한다', (tester) async {
-    await mount(tester, photo: true);
+    await mount(tester, photo: true, reminders: true);
     var attempts = 0;
     final ids = <int>[];
     deliver = (pet) async {
@@ -336,7 +352,7 @@ void main() {
   });
 
   testWidgets('알림 권한 응답 전 종료하면 저장한 펫만 유지하고 콜백을 무시한다', (tester) async {
-    await mount(tester);
+    await mount(tester, reminders: true);
     final permission = (await tester.runAsync(() async => Completer<bool>()))!;
     notificationReply = (call) async =>
         call.method == 'requestNotificationsPermission'
@@ -351,6 +367,13 @@ void main() {
     expect(await count(tester), 1);
     expect(delivered, isEmpty);
     expect(calls, ['requestNotificationsPermission']);
+    await tester.runAsync(() async {
+      final reopenedAt = DateTime(2026, 10, 21, 9);
+      expect(await db.eventsOn(DateTime(2026, 10, 20, 15)), isEmpty);
+      expect(await db.beginFirstMeeting(reopenedAt), isTrue);
+      expect(await db.beginFirstMeeting(reopenedAt), isFalse);
+      expect((await db.eventsOn(reopenedAt)).single.kind, 'first_meeting');
+    });
     expect(tester.takeException(), isNull);
   });
 

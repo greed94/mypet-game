@@ -97,6 +97,8 @@ class PetController extends ChangeNotifier {
 
   /// 낮잠을 깨운 뒤 이때까지는 다시 졸지 않는다. 쓰다듬자마자 또 자면 만진 보람이 없다.
   DateTime? _awakeUntil;
+  DateTime? _firstMetAt;
+  static const _firstMeetingLength = Duration(seconds: 90);
 
   /// 쉬가 마려워 킁킁대는 중. 이 동안 '패드로' 버튼이 보인다.
   bool pottyUrge = false;
@@ -877,12 +879,19 @@ class PetController extends ChangeNotifier {
   DateTime now() => _clock();
 
   /// 앱을 열 때 부른다. 어떻게 반겼는지 돌려준다(가상 테스터가 센다).
-  Greeting wake() {
+  Greeting wake({bool firstMeeting = false}) {
     if (_disposed || _resetPending) return Greeting.none;
     _gen++;
     final now = _clock();
     final fresh = _wokeAt == null;
+    final meeting = firstMeeting && fresh;
     _wokeAt = now;
+    if (meeting) {
+      _firstMetAt = now;
+      _awakeUntil = now.add(_firstMeetingLength);
+      petX = doorX;
+      snapGen++;
+    }
     // 처음이거나 남은 이름을 모르면(버릇이 없어졌으면) 지금 버릇을 남긴다. 안 남기면 버릇 종류가 늘 때 또 바뀐다.
     if (Quirk.values.asNameMap()[_pet.quirk] == null) {
       _pet = _pet.copyWith(quirk: Value(quirk.name));
@@ -914,7 +923,7 @@ class PetController extends ChangeNotifier {
         _pet.lastSeenAt,
         daycareRecitalAt(dropped),
         dropped: dropped,
-        asleepAt: _asleepAt,
+        asleepAt: _rhythm.isDogNight,
         sleepGain: _rhythm.sleepGain,
       );
       _pet = _pet.copyWith(
@@ -926,7 +935,7 @@ class PetController extends ChangeNotifier {
       _pet.lastSeenAt,
       now,
       dropped: dropped,
-      asleepAt: _asleepAt,
+      asleepAt: _rhythm.isDogNight,
       sleepGain: _rhythm.sleepGain,
     );
     // 유치원에 맡겨 둔 사이에 열었으면 유치원 CCTV를 보여 준다. 하원 시각이 지났으면 버스로 집에 와 있고,
@@ -966,6 +975,7 @@ class PetController extends ChangeNotifier {
             lonely,
             now,
             threshold: greetAfterFor(intimacy),
+            firstMeeting: meeting,
             asleep: _asleepAt(now),
             drowsy: _rhythm.isDrowsy(now),
             usual: usual,
@@ -2391,7 +2401,7 @@ class PetController extends ChangeNotifier {
     homeCam = homeCamMoments(
       from: now.subtract(lonely),
       to: now,
-      asleepAt: _asleepAt,
+      asleepAt: _rhythm.isDogNight,
       traits: traits,
       seed: _pet.id,
       ownerLeft: !afterBus,
@@ -3572,7 +3582,15 @@ class PetController extends ChangeNotifier {
   }
 
   /// 강아지가 자는 때. 주인에게 배운 리듬을 따른다. 소리를 줄이는 밤(23~7시)과는 다르다.
-  bool _asleepAt(DateTime t) => _rhythm.isDogNight(t);
+  bool _asleepAt(DateTime t) {
+    final met = _firstMetAt;
+    if (met != null &&
+        !t.isBefore(met) &&
+        t.difference(met) < _firstMeetingLength) {
+      return false;
+    }
+    return _rhythm.isDogNight(t);
+  }
 
   /// 밤잠이나 지쳐서 자는 잠. 낮잠은 쓰다듬으면 깨서 반긴다.
   bool get _soundAsleep =>
@@ -3810,7 +3828,7 @@ class PetController extends ChangeNotifier {
       now,
       dropped: _pet.daycareFrom,
       napping: step.behavior == Behavior.sleep,
-      asleepAt: _asleepAt,
+      asleepAt: _rhythm.isDogNight,
       sleepGain: _rhythm.sleepGain,
     );
     _sinceDecay = 0;

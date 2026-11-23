@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'guest.dart' show stableHash;
@@ -19,6 +20,67 @@ const walkSpotNames = [
 
 /// 킁킁댄 자리. [at]은 길 위 어디쯤인지(0~1).
 typedef WalkSpot = ({String name, double at});
+
+/// 산책이 끝났을 때 본 지도를 그대로 다시 펴기 위한 값. 시작 시각이 낙서 길의 씨앗이다.
+typedef WalkResult = ({
+  int steps,
+  int minutes,
+  int finds,
+  DateTime startedAt,
+  List<WalkSpot> spots,
+});
+
+String encodeWalkMap(WalkResult walk, {String? receipt}) => jsonEncode({
+  'v': 1,
+  'receipt': ?receipt,
+  'startMs': walk.startedAt.millisecondsSinceEpoch,
+  'minutes': walk.minutes,
+  'steps': walk.steps,
+  'finds': walk.finds,
+  'spots': [
+    for (final spot in walk.spots) [spot.name, spot.at],
+  ],
+});
+
+/// 구버전 기록과 읽을 수 없는 그림은 기존에 저장한 한 줄로 보여 준다.
+WalkResult? decodeWalkMap(String? value) {
+  if (value == null) return null;
+  try {
+    final data = jsonDecode(value);
+    if (data case {
+      'v': 1,
+      'startMs': int start,
+      'minutes': int minutes,
+      'steps': int steps,
+      'finds': int finds,
+      'spots': List points,
+    } when minutes > 0 && steps >= 0 && finds >= 0 && points.length <= 3) {
+      final spots = <WalkSpot>[];
+      for (final point in points) {
+        if (point case [
+          String name,
+          num at,
+        ] when name.isNotEmpty && at >= 0 && at <= 1) {
+          spots.add((name: name, at: at.toDouble()));
+        } else {
+          return null;
+        }
+      }
+      return (
+        startedAt: DateTime.fromMillisecondsSinceEpoch(start),
+        steps: steps,
+        minutes: minutes,
+        finds: finds,
+        spots: spots,
+      );
+    }
+  } on FormatException {
+    return null;
+  } on ArgumentError {
+    return null;
+  }
+  return null;
+}
 
 /// 산책에서 오래 킁킁댄 자리들(길 순서대로). 비 오는 날엔 물웅덩이가 끼고, 눈 오는 날엔 눈 쌓인 화단이.
 List<WalkSpot> walkSpots(

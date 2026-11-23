@@ -493,6 +493,162 @@ void main() {
     });
   });
 
+  testWidgets('산책 중 일기에서 뒤로 누르면 먼저 집에 오고, 취소한 산책은 계속 걷는다', (tester) async {
+    final home = await make(tester);
+    await mount(tester, home);
+    expect(home.c.startWalk(), isTrue);
+    home.c.updateWalkSteps(213);
+    await tester.pump();
+    await tester.tap(find.text('일기').hitTestable());
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('산책을 마칠까요?'), findsNothing);
+    expect(home.c.roomHidden, isFalse);
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('산책을 마칠까요?'), findsOneWidget);
+    await tester.tap(find.text('계속 걷기'));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(home.c.walking, isTrue);
+    expect(home.c.walkSteps, 213);
+    expect(home.c.uiBusy, isFalse);
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(home.c.walking, isTrue);
+    expect(await tester.runAsync(() => home.db.eventsOfKind('walk')), isEmpty);
+  });
+
+  testWidgets('뒤로 마친 산책의 지도는 일기에서 같은 그림과 걸음으로 다시 열고 보상은 한 번 받는다', (
+    tester,
+  ) async {
+    final home = await make(tester);
+    await mount(tester, home);
+    expect(home.c.startWalk(), isTrue);
+    runUntil(home.c, () => home.c.walkSniffs >= 2);
+    home.now = home.now.add(const Duration(minutes: 15));
+    home.c.updateWalkSteps(2140);
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('산책 마치기'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 350));
+    final original = tester.widget<WalkMap>(find.byType(WalkMap));
+    expect(original.summary, contains('2,140걸음'));
+    expect(home.c.uiBusy, isTrue);
+    final paws = home.c.paws;
+    await tester.tap(find.text('확인'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.runAsync(() => home.c.settled);
+    await tester.tap(find.text('일기').hitTestable());
+    await tester.pump();
+    await tester.tap(find.text('산책 기록').hitTestable());
+    await tester.pump(const Duration(milliseconds: 350));
+    for (var i = 0; i < 8 && find.text('산책 지도 보기').evaluate().isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    await tester.tap(find.text('산책 지도 보기').hitTestable());
+    await tester.pump(const Duration(milliseconds: 350));
+    final opened = tester.widget<WalkMap>(find.byType(WalkMap));
+    expect(opened.startedAt, original.startedAt);
+    expect(opened.spots, original.spots);
+    expect(opened.summary, original.summary);
+    await tester.tap(find.text('확인'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.text('콩이의 일기').hitTestable(), findsOneWidget);
+    expect(home.c.paws, paws);
+    expect(
+      await tester.runAsync(() => home.db.eventsOfKind('walk')),
+      hasLength(1),
+    );
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('산책 기록 저장에 실패하면 집에서 다시 저장하고 같은 걸음을 한 번만 남긴다', (tester) async {
+    final home = await make(tester);
+    await mount(tester, home);
+    await tester.runAsync(
+      () => home.db.customStatement(
+        "CREATE TRIGGER reject_walk BEFORE INSERT ON events WHEN NEW.kind='walk' BEGIN SELECT RAISE(ABORT, 'synthetic'); END",
+      ),
+    );
+    expect(home.c.startWalk(), isTrue);
+    home.c.updateWalkSteps(18);
+    await tester.pump();
+    await tester.tap(find.text('집으로').hitTestable());
+    await tester.runAsync(() => home.c.lastWalkRecord!.saved);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('산책 기록 1건을 저장하지 못했어요.'), findsOneWidget);
+    await tester.runAsync(
+      () => home.db.customStatement('DROP TRIGGER reject_walk'),
+    );
+    await tester.tap(find.text('다시 저장').hitTestable());
+    await tester.runAsync(() => home.c.settled);
+    await tester.pump();
+    final visits = await tester.runAsync(() => home.db.eventsOfKind('walk'));
+    expect(visits!.single.detail, contains('18걸음'));
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final target in ['diary', 'home']) {
+    testWidgets('산책 수첩의 지도를 연 상태에서 알림을 누르면 지정한 탭으로 간다 ($target)', (
+      tester,
+    ) async {
+      final home = await make(tester);
+      await mount(tester, home);
+      expect(home.c.startWalk(), isTrue);
+      home.now = home.now.add(const Duration(minutes: 4));
+      home.c.endWalk();
+      await tester.runAsync(() => home.c.settled);
+      await tester.tap(find.text('일기').hitTestable());
+      await tester.pump();
+      await tester.tap(find.text('산책 기록').hitTestable());
+      await tester.pump(const Duration(milliseconds: 350));
+      for (var i = 0; i < 8 && find.text('산책 지도 보기').evaluate().isEmpty; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+      final journalButton = find.text('산책 지도 보기').hitTestable();
+      final journalRoute = ModalRoute.of(tester.element(journalButton))!;
+      expect(journalRoute.settings.name, 'walk-journal');
+      await tester.tap(journalButton);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      final mapRoute = ModalRoute.of(tester.element(find.byType(WalkMap)))!;
+      expect(mapRoute.settings.name, 'walk-map');
+      Notifications.opened.value = target;
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(() => pumpEventQueue(times: 2));
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      expect(mapRoute.isActive, isFalse);
+      expect(journalRoute.isActive, isFalse);
+      expect(find.byType(WalkMap).hitTestable(), findsNothing);
+      expect(find.text('산책 지도 보기').hitTestable(), findsNothing);
+      expect(
+        find.text(target == 'home' ? '밥 주기' : '오늘 미리 보기').hitTestable(),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 20));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('산책 집으로 버튼은 지도 한 장을 열고 닫으면 화면 가림 상태를 푼다', (tester) async {
     final home = await make(tester);
     expect(home.c.startWalk(), isTrue);

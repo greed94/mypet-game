@@ -131,6 +131,7 @@ class PetController extends ChangeNotifier {
   set uiBusy(bool v) {
     _uiBusy = v;
     _noteOwner(changesReaction: false);
+    if (!v) _showWalkFinds();
   }
 
   bool _uiBusy = false;
@@ -140,9 +141,11 @@ class PetController extends ChangeNotifier {
   set roomHidden(bool v) {
     _roomHidden = v;
     _noteOwner(changesReaction: false);
+    if (!v) _showWalkFinds();
   }
 
   bool _roomHidden = false;
+  int? _walkPresentation;
 
   PetStats stats;
   double careScore;
@@ -152,6 +155,26 @@ class PetController extends ChangeNotifier {
   bool walking = false;
   DateTime? walkStartedAt;
   int walkSteps = 0;
+  ({Future<bool> saved, Future<bool> Function() retry})? lastWalkRecord;
+  final _failedWalks = <String, Future<bool> Function()>{};
+  int get unsavedWalkCount => _failedWalks.length;
+  bool retryingWalks = false;
+
+  Future<bool> retryWalkRecords() async {
+    if (_disposed || _resetPending || retryingWalks) return false;
+    if (_failedWalks.isEmpty) return true;
+    retryingWalks = true;
+    notifyListeners();
+    try {
+      for (final write in _failedWalks.values.toList()) {
+        await write();
+      }
+      return _failedWalks.isEmpty;
+    } finally {
+      retryingWalks = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
 
   /// 산책 중 킁킁댄 횟수. 산책 지도에 킁킁 자리로 찍힌다.
   int walkSniffs = 0;
@@ -223,6 +246,7 @@ class PetController extends ChangeNotifier {
 
   void _supersedeReaction() {
     _reactionVersion++;
+    _walkPresentation = null;
     if (bubble == _waitingThought) {
       bubble = null;
       _bubbleLeft = 0;
@@ -2380,14 +2404,7 @@ class PetController extends ChangeNotifier {
     notifyListeners();
   }
 
-  ({
-    int steps,
-    int minutes,
-    int finds,
-    DateTime startedAt,
-    List<WalkSpot> spots,
-  })
-  endWalk() {
+  WalkResult endWalk() {
     final now = _clock();
     // 두 번 눌려도 걸음 보상·발견물·발도장을 두 번 주지 않는다.
     if (!walking) {
@@ -2401,7 +2418,9 @@ class PetController extends ChangeNotifier {
     }
     _noteOwner();
     final started = walkStartedAt ?? now;
-    final length = now.difference(started);
+    final length = now.isBefore(started)
+        ? Duration.zero
+        : now.difference(started);
     final spots = walkSpots(
       started,
       walkSniffs,
@@ -2413,7 +2432,11 @@ class PetController extends ChangeNotifier {
     // 비 오는 날 같이 걸어 준 날은 하루 한 번 선물을 하나 더 가져온다.
     final rainGift = raining && n > 0 && _pet.giftDay != dayKey(now);
     if (rainGift) _pet = _pet.copyWith(giftDay: Value(dayKey(now)));
-    _background(_bringHome(n, rainGift, now, raining));
+    final items = [
+      for (var i = 0; i < n; i++)
+        (_pick(FindSource.walk, now, raining).id, FindSource.walk),
+      if (rainGift) (_pick(FindSource.gift, now, raining).id, FindSource.gift),
+    ];
     // 산책 걸음은 산책 보상으로 줬으니 다음에 열 때 주머니 걸음으로 다시 세지 않게 기준을 옮긴다.
     if (_pet.lastStepTotal case final base?) {
       _pet = _pet.copyWith(lastStepTotal: Value(base + walkSteps));
@@ -2427,22 +2450,83 @@ class PetController extends ChangeNotifier {
       'minutes': length.inMinutes,
       'finds': n,
     });
-    _log('walk', '주인이랑 ${length.inMinutes}분 산책했다 ($walkSteps걸음)');
-    if (walkSpotLine(spots) case final line?) {
-      _background(_logOnce('walk_spot', line));
-    }
-    _earn(walkPaws(length), 'walk');
-    _plan.clear();
-    _start(const PetStep(Behavior.happy, 3));
-    _say('산책 좋았다!', 6);
-    _save(now);
-    return (
+    final result = (
       steps: walkSteps,
       minutes: length.inMinutes,
       finds: n,
       startedAt: started,
       spots: spots,
     );
+    _recordWalk(result, now, items);
+    _earn(walkPaws(length), 'walk');
+    _plan.clear();
+    _start(const PetStep(Behavior.happy, 3));
+    _say('산책 좋았다!', 6);
+    _save(now);
+    return result;
+  }
+
+  void _showWalkFinds() {
+    final pending = _walkPresentation;
+    if (pending == null || uiBusy || roomHidden) return;
+    _walkPresentation = null;
+    if (_ownsReaction(pending)) _present();
+  }
+
+  void _recordWalk(
+    WalkResult result,
+    DateTime at,
+    List<(String, FindSource)> items,
+  ) {
+    // 연습 시계를 되감아 똑같은 산책을 다시 해도 새 산책은 별도 기록이다.
+    final random = Random.secure();
+    final receipt =
+        '${at.microsecondsSinceEpoch}-${random.nextInt(1 << 32)}-${random.nextInt(1 << 32)}';
+    final map = encodeWalkMap(result, receipt: receipt);
+    final detail = '주인이랑 ${result.minutes}분 산책했다 (${result.steps}걸음)';
+    final spot = walkSpotLine(result.spots);
+    Telemetry.track('event', {'kind': 'walk'});
+    final version = _reactionVersion;
+    var recorded = false;
+    Future<bool>? active;
+    late Future<bool> Function() save;
+    Future<bool> attempt() async {
+      try {
+        final addedSpot = await _db.storeFinishedWalk(
+          at,
+          detail,
+          map,
+          spot,
+          items,
+        );
+        if (addedSpot) Telemetry.track('event', {'kind': 'walk_spot'});
+        if (items.isNotEmpty) {
+          final updated = await _db.allCarried();
+          if (!_disposed) {
+            carried = updated;
+            if (_ownsReaction(version)) {
+              _walkPresentation = version;
+              _showWalkFinds();
+            }
+          }
+        }
+        recorded = true;
+        _failedWalks.remove(receipt);
+        return true;
+      } catch (_) {
+        if (!_disposed) _failedWalks[receipt] = save;
+        return false;
+      } finally {
+        if (!_disposed) notifyListeners();
+      }
+    }
+
+    save = () {
+      if (recorded) return Future.value(true);
+      if (_disposed || _resetPending) return Future.value(false);
+      return active ??= _tracked(attempt()).whenComplete(() => active = null);
+    };
+    lastWalkRecord = (saved: save(), retry: save);
   }
 
   /// 문을 열었다. 깊이 자거나 지쳤으면 어디에도 안 나간다(속마음으로 알린다).
@@ -3588,27 +3672,6 @@ class PetController extends ChangeNotifier {
     _present();
     _save(now);
     return minutes;
-  }
-
-  Future<void> _bringHome(int n, bool gift, DateTime now, bool raining) async {
-    for (var i = 0; i < n; i++) {
-      await _db.addCarried(
-        _pick(FindSource.walk, now, raining).id,
-        FindSource.walk,
-        now,
-      );
-    }
-    if (gift) {
-      await _db.addCarried(
-        _pick(FindSource.gift, now, raining).id,
-        FindSource.gift,
-        now,
-        gift: true,
-      );
-    }
-    carried = await _db.allCarried();
-    _present();
-    notifyListeners();
   }
 
   Stream<List<Memory>> watchMemoryNotebook(int limit) =>

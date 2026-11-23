@@ -174,6 +174,26 @@ void main() {
     });
   }
 
+  for (final fails in [false, true]) {
+    testWidgets('산책 기록을 읽을 때 늦은 일기 미리보기가 위로 나오지 않는다 ($fails)', (tester) async {
+      final (db, _) = await mount(tester);
+      db.eventGate = await tester.runAsync(() async => Completer<void>());
+      await tester.tap(find.text('오늘 미리 보기'));
+      await tester.pump();
+      await tester.tap(find.text('산책 기록').hitTestable());
+      await tester.pump(const Duration(milliseconds: 350));
+      db.failEvents = fails;
+      db.eventGate!.complete();
+      await drain(tester);
+      expect(find.text('오늘 지금까지'), findsNothing);
+      expect(find.textContaining('오늘 일기를 불러오지 못했어요'), findsNothing);
+      expect(db.photoReads, 0);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 20));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('미리보기 대기 중 닫으면 사진 읽기나 새 창을 열지 않는다', (tester) async {
     final (db, _) = await mount(tester);
     db.eventGate = await tester.runAsync(() async => Completer<void>());

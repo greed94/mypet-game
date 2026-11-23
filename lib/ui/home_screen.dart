@@ -45,6 +45,7 @@ import 'diary_screen.dart';
 import 'crisis_dialog.dart';
 import 'friends.dart';
 import 'walk_card.dart';
+import 'walk_journal.dart';
 import 'lesson_picker.dart';
 import 'keep_words.dart';
 import 'place_card.dart';
@@ -95,6 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _steps = StepCounter();
   Timer? _walkClock;
   int _walkSession = 0;
+  bool _confirmingWalk = false;
   StreamSubscription<Cue>? _cueSub;
   int _tab = 0;
   int _seenDiary = 0;
@@ -169,6 +171,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (to == null || !mounted) return;
     Notifications.opened.value = null;
     Telemetry.track('notification_open', {'to': to});
+    Navigator.of(context).popUntil(
+      (route) =>
+          route.settings.name != WalkJournal.routeName &&
+          route.settings.name != walkMapRouteName,
+    );
     _selectTab(to == 'diary' ? 1 : 0);
   }
 
@@ -370,6 +377,42 @@ class _HomeScreenState extends State<HomeScreen> {
       (_) => setState(() {}),
     );
     setState(() {});
+  }
+
+  Future<void> _confirmEndWalk() async {
+    final c = widget.controller;
+    if (_confirmingWalk || c.uiBusy || !c.walking || !_acceptsInput) return;
+    final session = _walkSession;
+    _confirmingWalk = true;
+    c.uiBusy = true;
+    bool? finish;
+    try {
+      finish = await showC3Dialog<bool>(
+        context,
+        title: '산책을 마칠까요?',
+        body: const Text('지금까지 함께 걸은 기록을 남기고 집으로 돌아갈 수 있어요.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('계속 걷기'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('산책 마치기'),
+          ),
+        ],
+      );
+    } finally {
+      _confirmingWalk = false;
+      if (!c.isDisposed) c.uiBusy = false;
+    }
+    if (finish == true &&
+        mounted &&
+        _acceptsInput &&
+        session == _walkSession &&
+        c.walking) {
+      _endWalk();
+    }
   }
 
   void _endWalk() {
@@ -668,11 +711,20 @@ class _HomeScreenState extends State<HomeScreen> {
     final top = MediaQuery.paddingOf(context).top;
     final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
     // 기록을 읽다가 뒤로 가면 돌보던 집으로 돌아간다.
-    return PopScope<void>(
-      canPop: _tab == 0,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && _tab != 0 && _acceptsInput) _selectTab(0);
-      },
+    return ListenableBuilder(
+      listenable: c,
+      builder: (context, child) => PopScope<void>(
+        canPop: _tab == 0 && !c.walking,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop || !_acceptsInput) return;
+          if (_tab != 0) {
+            _selectTab(0);
+          } else if (c.walking) {
+            unawaited(_confirmEndWalk());
+          }
+        },
+        child: child!,
+      ),
       child: Scaffold(
         backgroundColor: C3Colors.kraft,
         body: PaperBackground(
@@ -682,7 +734,7 @@ class _HomeScreenState extends State<HomeScreen> {
               index: _tab,
               children: [
                 _home(c, typing),
-                DiaryScreen(controller: c, db: widget.db),
+                DiaryScreen(controller: c, db: widget.db, visible: _tab == 1),
                 CollectionScreen(controller: c),
               ],
             ),
@@ -696,18 +748,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 builder: (context, _) {
                   // 일기 탭을 보고 있는 동안 써진 일기는 이미 본 것이다.
                   if (_tab == 1) _seenDiary = c.diaryVersion;
-                  return IndexTabs(
-                    labels: const ['집', '일기', '도감'],
-                    icons: const ['house', 'book', 'box'],
-                    selected: _tab,
-                    // 새 일기가 써졌으면 일기 탭을 열 때까지 점을 찍어 둔다.
-                    dots: {if (c.diaryVersion != _seenDiary) 1},
-                    onSelect: (i) {
-                      Telemetry.track('tab', {
-                        'to': const ['home', 'diary', 'collection'][i],
-                      });
-                      _selectTab(i);
-                    },
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      WalkSaveNotice(controller: c),
+                      IndexTabs(
+                        labels: const ['집', '일기', '도감'],
+                        icons: const ['house', 'book', 'box'],
+                        selected: _tab,
+                        // 새 일기가 써졌으면 일기 탭을 열 때까지 점을 찍어 둔다.
+                        dots: {if (c.diaryVersion != _seenDiary) 1},
+                        onSelect: (i) {
+                          Telemetry.track('tab', {
+                            'to': const ['home', 'diary', 'collection'][i],
+                          });
+                          _selectTab(i);
+                        },
+                      ),
+                    ],
                   );
                 },
               ),
@@ -1096,7 +1154,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _walkPanel(PetController c) {
-    final elapsed = c.now().difference(c.walkStartedAt ?? c.now());
+    final now = c.now();
+    final since = now.difference(c.walkStartedAt ?? now);
+    final elapsed = since.isNegative ? Duration.zero : since;
     final mm = elapsed.inMinutes.toString().padLeft(2, '0');
     final ss = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
     return Padding(

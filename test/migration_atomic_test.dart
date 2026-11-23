@@ -63,6 +63,8 @@ void main() {
         'ALTER TABLE memories DROP COLUMN heard_event_id',
       );
       await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
+      await db.customStatement('DROP INDEX events_kind_at');
+      await db.customStatement('ALTER TABLE events DROP COLUMN walk_map');
       await db.customStatement('PRAGMA user_version = 28');
     } finally {
       await db.close();

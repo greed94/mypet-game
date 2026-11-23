@@ -3637,8 +3637,19 @@ class $EventsTable extends Events with TableInfo<$EventsTable, Event> {
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _walkMapMeta = const VerificationMeta(
+    'walkMap',
+  );
   @override
-  List<GeneratedColumn> get $columns => [id, kind, detail, at];
+  late final GeneratedColumn<String> walkMap = GeneratedColumn<String>(
+    'walk_map',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, kind, detail, at, walkMap];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3675,6 +3686,12 @@ class $EventsTable extends Events with TableInfo<$EventsTable, Event> {
     } else if (isInserting) {
       context.missing(_atMeta);
     }
+    if (data.containsKey('walk_map')) {
+      context.handle(
+        _walkMapMeta,
+        walkMap.isAcceptableOrUnknown(data['walk_map']!, _walkMapMeta),
+      );
+    }
     return context;
   }
 
@@ -3700,6 +3717,10 @@ class $EventsTable extends Events with TableInfo<$EventsTable, Event> {
         DriftSqlType.dateTime,
         data['${effectivePrefix}at'],
       )!,
+      walkMap: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}walk_map'],
+      ),
     );
   }
 
@@ -3714,11 +3735,13 @@ class Event extends DataClass implements Insertable<Event> {
   final String kind;
   final String detail;
   final DateTime at;
+  final String? walkMap;
   const Event({
     required this.id,
     required this.kind,
     required this.detail,
     required this.at,
+    this.walkMap,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3727,6 +3750,9 @@ class Event extends DataClass implements Insertable<Event> {
     map['kind'] = Variable<String>(kind);
     map['detail'] = Variable<String>(detail);
     map['at'] = Variable<DateTime>(at);
+    if (!nullToAbsent || walkMap != null) {
+      map['walk_map'] = Variable<String>(walkMap);
+    }
     return map;
   }
 
@@ -3736,6 +3762,9 @@ class Event extends DataClass implements Insertable<Event> {
       kind: Value(kind),
       detail: Value(detail),
       at: Value(at),
+      walkMap: walkMap == null && nullToAbsent
+          ? const Value.absent()
+          : Value(walkMap),
     );
   }
 
@@ -3749,6 +3778,7 @@ class Event extends DataClass implements Insertable<Event> {
       kind: serializer.fromJson<String>(json['kind']),
       detail: serializer.fromJson<String>(json['detail']),
       at: serializer.fromJson<DateTime>(json['at']),
+      walkMap: serializer.fromJson<String?>(json['walkMap']),
     );
   }
   @override
@@ -3759,22 +3789,30 @@ class Event extends DataClass implements Insertable<Event> {
       'kind': serializer.toJson<String>(kind),
       'detail': serializer.toJson<String>(detail),
       'at': serializer.toJson<DateTime>(at),
+      'walkMap': serializer.toJson<String?>(walkMap),
     };
   }
 
-  Event copyWith({int? id, String? kind, String? detail, DateTime? at}) =>
-      Event(
-        id: id ?? this.id,
-        kind: kind ?? this.kind,
-        detail: detail ?? this.detail,
-        at: at ?? this.at,
-      );
+  Event copyWith({
+    int? id,
+    String? kind,
+    String? detail,
+    DateTime? at,
+    Value<String?> walkMap = const Value.absent(),
+  }) => Event(
+    id: id ?? this.id,
+    kind: kind ?? this.kind,
+    detail: detail ?? this.detail,
+    at: at ?? this.at,
+    walkMap: walkMap.present ? walkMap.value : this.walkMap,
+  );
   Event copyWithCompanion(EventsCompanion data) {
     return Event(
       id: data.id.present ? data.id.value : this.id,
       kind: data.kind.present ? data.kind.value : this.kind,
       detail: data.detail.present ? data.detail.value : this.detail,
       at: data.at.present ? data.at.value : this.at,
+      walkMap: data.walkMap.present ? data.walkMap.value : this.walkMap,
     );
   }
 
@@ -3784,13 +3822,14 @@ class Event extends DataClass implements Insertable<Event> {
           ..write('id: $id, ')
           ..write('kind: $kind, ')
           ..write('detail: $detail, ')
-          ..write('at: $at')
+          ..write('at: $at, ')
+          ..write('walkMap: $walkMap')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, kind, detail, at);
+  int get hashCode => Object.hash(id, kind, detail, at, walkMap);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -3798,7 +3837,8 @@ class Event extends DataClass implements Insertable<Event> {
           other.id == this.id &&
           other.kind == this.kind &&
           other.detail == this.detail &&
-          other.at == this.at);
+          other.at == this.at &&
+          other.walkMap == this.walkMap);
 }
 
 class EventsCompanion extends UpdateCompanion<Event> {
@@ -3806,17 +3846,20 @@ class EventsCompanion extends UpdateCompanion<Event> {
   final Value<String> kind;
   final Value<String> detail;
   final Value<DateTime> at;
+  final Value<String?> walkMap;
   const EventsCompanion({
     this.id = const Value.absent(),
     this.kind = const Value.absent(),
     this.detail = const Value.absent(),
     this.at = const Value.absent(),
+    this.walkMap = const Value.absent(),
   });
   EventsCompanion.insert({
     this.id = const Value.absent(),
     required String kind,
     required String detail,
     required DateTime at,
+    this.walkMap = const Value.absent(),
   }) : kind = Value(kind),
        detail = Value(detail),
        at = Value(at);
@@ -3825,12 +3868,14 @@ class EventsCompanion extends UpdateCompanion<Event> {
     Expression<String>? kind,
     Expression<String>? detail,
     Expression<DateTime>? at,
+    Expression<String>? walkMap,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (kind != null) 'kind': kind,
       if (detail != null) 'detail': detail,
       if (at != null) 'at': at,
+      if (walkMap != null) 'walk_map': walkMap,
     });
   }
 
@@ -3839,12 +3884,14 @@ class EventsCompanion extends UpdateCompanion<Event> {
     Value<String>? kind,
     Value<String>? detail,
     Value<DateTime>? at,
+    Value<String?>? walkMap,
   }) {
     return EventsCompanion(
       id: id ?? this.id,
       kind: kind ?? this.kind,
       detail: detail ?? this.detail,
       at: at ?? this.at,
+      walkMap: walkMap ?? this.walkMap,
     );
   }
 
@@ -3863,6 +3910,9 @@ class EventsCompanion extends UpdateCompanion<Event> {
     if (at.present) {
       map['at'] = Variable<DateTime>(at.value);
     }
+    if (walkMap.present) {
+      map['walk_map'] = Variable<String>(walkMap.value);
+    }
     return map;
   }
 
@@ -3872,7 +3922,8 @@ class EventsCompanion extends UpdateCompanion<Event> {
           ..write('id: $id, ')
           ..write('kind: $kind, ')
           ..write('detail: $detail, ')
-          ..write('at: $at')
+          ..write('at: $at, ')
+          ..write('walkMap: $walkMap')
           ..write(')'))
         .toString();
   }
@@ -6684,6 +6735,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $FriendsTable friends = $FriendsTable(this);
   late final $KnownDogsTable knownDogs = $KnownDogsTable(this);
   late final $KinderPhotosTable kinderPhotos = $KinderPhotosTable(this);
+  late final Index eventsKindAt = Index(
+    'events_kind_at',
+    'CREATE INDEX events_kind_at ON events (kind, at, id)',
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -6700,6 +6755,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     friends,
     knownDogs,
     kinderPhotos,
+    eventsKindAt,
   ];
 }
 
@@ -8214,6 +8270,7 @@ typedef $$EventsTableCreateCompanionBuilder =
       required String kind,
       required String detail,
       required DateTime at,
+      Value<String?> walkMap,
     });
 typedef $$EventsTableUpdateCompanionBuilder =
     EventsCompanion Function({
@@ -8221,6 +8278,7 @@ typedef $$EventsTableUpdateCompanionBuilder =
       Value<String> kind,
       Value<String> detail,
       Value<DateTime> at,
+      Value<String?> walkMap,
     });
 
 class $$EventsTableFilterComposer
@@ -8249,6 +8307,11 @@ class $$EventsTableFilterComposer
 
   ColumnFilters<DateTime> get at => $composableBuilder(
     column: $table.at,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get walkMap => $composableBuilder(
+    column: $table.walkMap,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -8281,6 +8344,11 @@ class $$EventsTableOrderingComposer
     column: $table.at,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get walkMap => $composableBuilder(
+    column: $table.walkMap,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$EventsTableAnnotationComposer
@@ -8303,6 +8371,9 @@ class $$EventsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get at =>
       $composableBuilder(column: $table.at, builder: (column) => column);
+
+  GeneratedColumn<String> get walkMap =>
+      $composableBuilder(column: $table.walkMap, builder: (column) => column);
 }
 
 class $$EventsTableTableManager
@@ -8337,18 +8408,27 @@ class $$EventsTableTableManager
                 Value<String> kind = const Value.absent(),
                 Value<String> detail = const Value.absent(),
                 Value<DateTime> at = const Value.absent(),
-              }) => EventsCompanion(id: id, kind: kind, detail: detail, at: at),
+                Value<String?> walkMap = const Value.absent(),
+              }) => EventsCompanion(
+                id: id,
+                kind: kind,
+                detail: detail,
+                at: at,
+                walkMap: walkMap,
+              ),
           createCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
                 required String kind,
                 required String detail,
                 required DateTime at,
+                Value<String?> walkMap = const Value.absent(),
               }) => EventsCompanion.insert(
                 id: id,
                 kind: kind,
                 detail: detail,
                 at: at,
+                walkMap: walkMap,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

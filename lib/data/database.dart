@@ -137,11 +137,13 @@ class Memories extends Table {
 }
 
 /// 그날 있었던 일. 일기의 재료다.
+@TableIndex(name: 'events_kind_at', columns: {#kind, #at, #id})
 class Events extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get kind => text()();
   TextColumn get detail => text()();
   DateTimeColumn get at => dateTime()();
+  TextColumn get walkMap => text().nullable()();
 }
 
 class Diaries extends Table {
@@ -274,7 +276,7 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'mypet'));
 
   @override
-  int get schemaVersion => 32;
+  int get schemaVersion => 33;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -372,6 +374,9 @@ class AppDatabase extends _$AppDatabase {
       if (from >= 3 && from < 32) {
         await m.addColumn(memories, memories.heardEventId);
       }
+      // v4 전에서 올라오면 이미 현재 버전의 하루 기록 표를 만들었다.
+      if (from >= 4 && from < 33) await m.addColumn(events, events.walkMap);
+      if (from < 33) await m.createIndex(eventsKindAt);
       // Drift의 바깥 버전 저장 전에 종료돼도 칸과 버전이 함께 남아야 한다.
       await customStatement('PRAGMA user_version = $to');
     }),
@@ -499,9 +504,72 @@ class AppDatabase extends _$AppDatabase {
       (update(events)..where((e) => e.id.equals(id) & e.kind.equals('talk')))
           .write(EventsCompanion(detail: Value(detail)));
 
-  Future<int> addEvent(String kind, String detail, DateTime at) => into(
-    events,
-  ).insert(EventsCompanion.insert(kind: kind, detail: detail, at: at));
+  Future<int> addEvent(
+    String kind,
+    String detail,
+    DateTime at, {
+    String? walkMap,
+  }) => into(events).insert(
+    EventsCompanion.insert(
+      kind: kind,
+      detail: detail,
+      at: at,
+      walkMap: Value(walkMap),
+    ),
+  );
+
+  /// 산책 문장과 첫 킁킁 자리를 함께 남긴다. 같은 저장 요청을 다시 보내도 한 번만 쓴다.
+  Future<bool> storeFinishedWalk(
+    DateTime at,
+    String detail,
+    String map,
+    String? spot,
+    List<(String, FindSource)> items,
+  ) => transaction(() async {
+    final existing =
+        await (selectOnly(events)
+              ..addColumns([events.id])
+              ..where(
+                events.kind.equals('walk') &
+                    events.at.equals(at) &
+                    events.walkMap.equals(map),
+              )
+              ..limit(1))
+            .getSingleOrNull();
+    if (existing != null) return false;
+    await addEvent('walk', detail, at, walkMap: map);
+    for (final (id, source) in items) {
+      await addCarried(id, source, at, gift: source == FindSource.gift);
+    }
+    if (spot == null) return false;
+    final day = petDate(at).add(const Duration(hours: dayStartHour));
+    final found =
+        await (selectOnly(events)
+              ..addColumns([events.id])
+              ..where(
+                events.kind.equals('walk_spot') &
+                    events.detail.equals(spot) &
+                    events.at.isBiggerOrEqualValue(day) &
+                    events.at.isSmallerThanValue(
+                      day.add(const Duration(days: 1)),
+                    ),
+              )
+              ..limit(1))
+            .getSingleOrNull();
+    if (found != null) return false;
+    await addEvent('walk_spot', spot, at);
+    return true;
+  });
+
+  Stream<List<Event>> watchWalks(int limit) =>
+      (select(events)
+            ..where((e) => e.kind.equals('walk'))
+            ..orderBy([
+              (e) => OrderingTerm.desc(e.at),
+              (e) => OrderingTerm.desc(e.id),
+            ])
+            ..limit(limit))
+          .watch();
 
   /// [t]가 속한 하루(새벽 5시부터 다음 날 새벽 5시 전까지)에 있었던 일.
   Future<List<Event>> eventsOfKind(String kind) =>

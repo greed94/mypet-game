@@ -7,6 +7,8 @@ import '../pet/walk_log.dart';
 import 'c3/c3_theme.dart';
 import 'c3/sticker_card.dart';
 
+const walkMapRouteName = 'walk-map';
+
 /// 산책이 끝나면 뜨는 산책 지도. 위치를 재지 않아 길은 그날의 낙서이고, 킁킁 자리가 발자국으로 찍힌다.
 Future<void> showWalkCard(
   BuildContext context, {
@@ -19,20 +21,22 @@ Future<void> showWalkCard(
 }) => showC3Dialog<void>(
   context,
   title: '$name의 산책 지도',
+  routeSettings: const RouteSettings(name: walkMapRouteName),
   body: WalkMap(
     startedAt: startedAt,
     spots: spots,
+    dayLabel: '${startedAt.year}년 ${startedAt.month}월 ${startedAt.day}일',
     summary: [
       '$minutes분',
-      if (steps > 0) '${_thousands(steps)}걸음',
+      if (steps > 0) '${formatWalkSteps(steps)}걸음',
       if (finds > 0) '뭔가 물고 왔어요',
     ].join(' · '),
   ),
 );
 
-String _thousands(int n) => n < 1000
+String formatWalkSteps(int n) => n < 1000
     ? '$n'
-    : '${_thousands(n ~/ 1000)},${(n % 1000).toString().padLeft(3, '0')}';
+    : '${formatWalkSteps(n ~/ 1000)},${(n % 1000).toString().padLeft(3, '0')}';
 
 class WalkMap extends StatelessWidget {
   const WalkMap({
@@ -40,11 +44,13 @@ class WalkMap extends StatelessWidget {
     required this.startedAt,
     required this.spots,
     required this.summary,
+    this.dayLabel,
   });
 
   final DateTime startedAt;
   final List<WalkSpot> spots;
   final String summary;
+  final String? dayLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -52,6 +58,13 @@ class WalkMap extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (dayLabel != null) ...[
+          Text(
+            dayLabel!,
+            style: C3Text.label.copyWith(color: C3Colors.ink2, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+        ],
         AspectRatio(
           aspectRatio: 1.5,
           child: CustomPaint(painter: _MapPainter(walkPath(startedAt), spots)),
@@ -67,9 +80,14 @@ class WalkMap extends StatelessWidget {
         ],
         if (spots.isEmpty)
           Text(
-            '오늘은 킁킁할 새 없이 바빴어요',
+            '이 산책에서는 킁킁할 새 없이 바빴어요',
             style: C3Text.body.copyWith(fontSize: 14, color: C3Colors.ink3),
           ),
+        const SizedBox(height: 8),
+        Text(
+          '길과 장소 이름은 게임이 만든 산책 삽화예요.',
+          style: C3Text.body.copyWith(fontSize: 12, color: C3Colors.ink3),
+        ),
       ],
     );
   }

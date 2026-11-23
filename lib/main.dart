@@ -254,6 +254,11 @@ class _MypetAppState extends State<MypetApp> {
     AppDatabase? nextDb;
     try {
       await old?.prepareReset();
+      if (old != null && old.unsavedWalkCount > 0) {
+        old.cancelReset();
+        if (!await old.retryWalkRecords()) throw StateError('산책 기록 저장 대기');
+        await old.prepareReset();
+      }
       if (!mounted) return;
       if (on) {
         await TestMode.copyForPractice(

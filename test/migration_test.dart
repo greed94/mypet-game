@@ -10,8 +10,8 @@ import 'package:mypet/pet/treasure.dart';
 import 'package:mypet/pet/tricks.dart';
 
 void main() {
-  // 유저 폰에는 v4 데이터가 있다. v5~v32를 한 번에 거쳐 올라가도 펫과 일기가 남아야 한다.
-  test('v4 DB가 v32로 한 번에 올라가도 펫과 일기가 그대로 남는다', () async {
+  // 유저 폰에는 v4 데이터가 있다. v5~v33를 한 번에 거쳐 올라가도 펫과 일기가 남아야 한다.
+  test('v4 DB가 v33으로 한 번에 올라가도 펫과 일기가 그대로 남는다', () async {
     final db = AppDatabase(
       NativeDatabase.memory(
         setup: (raw) {
@@ -144,6 +144,8 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     );
     await db.customStatement('ALTER TABLE memories DROP COLUMN heard_event_id');
     await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
+    await db.customStatement('DROP INDEX events_kind_at');
+    await db.customStatement('ALTER TABLE events DROP COLUMN walk_map');
     await db.customStatement('PRAGMA user_version = 25');
     await db.close();
 
@@ -178,6 +180,8 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     );
     await db.customStatement('ALTER TABLE memories DROP COLUMN heard_event_id');
     await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
+    await db.customStatement('DROP INDEX events_kind_at');
+    await db.customStatement('ALTER TABLE events DROP COLUMN walk_map');
     await db.customStatement('PRAGMA user_version = 27');
     await db.close();
 
@@ -209,6 +213,8 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     await old.customStatement(
       'ALTER TABLE memories DROP COLUMN heard_event_id',
     );
+    await old.customStatement('DROP INDEX events_kind_at');
+    await old.customStatement('ALTER TABLE events DROP COLUMN walk_map');
     await old.customStatement('PRAGMA user_version = 31');
     await old.close();
     final next = AppDatabase(NativeDatabase(file));
@@ -231,6 +237,8 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     await db.addDiary('2026-11-23', '같이 산책했다.', at);
     await db.customStatement('ALTER TABLE memories DROP COLUMN heard_event_id');
     await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
+    await db.customStatement('DROP INDEX events_kind_at');
+    await db.customStatement('ALTER TABLE events DROP COLUMN walk_map');
     await db.customStatement('PRAGMA user_version = 30');
     await db.close();
 
@@ -271,6 +279,8 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     );
     await db.customStatement('ALTER TABLE memories DROP COLUMN heard_event_id');
     await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
+    await db.customStatement('DROP INDEX events_kind_at');
+    await db.customStatement('ALTER TABLE events DROP COLUMN walk_map');
     await db.customStatement('PRAGMA user_version = 29');
     await db.close();
     db = AppDatabase(NativeDatabase(file));
@@ -283,7 +293,7 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   });
 
   for (final version in [11, 12]) {
-    test('v$version DB가 v32로 올라가면 종 칸은 지우고 펫과 일기는 그대로 둔다', () async {
+    test('v$version DB가 v33으로 올라가면 종 칸은 지우고 펫과 일기는 그대로 둔다', () async {
       final dir = Directory.systemTemp.createTempSync('mypet_');
       addTearDown(() => dir.deleteSync(recursive: true));
       final file = File('${dir.path}/mypet.sqlite');
@@ -341,6 +351,8 @@ CREATE TABLE pets (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         'ALTER TABLE memories DROP COLUMN heard_event_id',
       );
       await db.customStatement('ALTER TABLE memories DROP COLUMN pinned');
+      await db.customStatement('DROP INDEX events_kind_at');
+      await db.customStatement('ALTER TABLE events DROP COLUMN walk_map');
       await db.customStatement('PRAGMA user_version = $version');
       await db.close();
 

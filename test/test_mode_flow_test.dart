@@ -214,6 +214,40 @@ void main() {
     expect(saved!.offset, session.mode.offset);
   });
 
+  testWidgets('연습 펫의 미저장 산책이 남으면 지키고 복구한 뒤에만 실제 펫으로 전환한다', (tester) async {
+    final session = await mount(tester);
+    final old = session.home.controller;
+    await tester.runAsync(() async {
+      await old.settled;
+      await session.home.db.customStatement(
+        "CREATE TRIGGER pending_walk BEFORE INSERT ON events WHEN NEW.kind='walk' BEGIN SELECT RAISE(ABORT, 'synthetic'); END",
+      );
+      expect(old.startWalk(), isTrue);
+      old.endWalk();
+      expect(await old.lastWalkRecord!.saved, isFalse);
+      await session.leave();
+    });
+    await tester.pump();
+    expect(session.mode.on, isTrue);
+    expect(old.isDisposed, isFalse);
+    expect(old.unsavedWalkCount, 1);
+    expect(find.text('다시 저장').hitTestable(), findsOneWidget);
+    await tester.runAsync(() async {
+      await session.home.db.customStatement('DROP TRIGGER pending_walk');
+      session.file.release.complete();
+      await session.leave();
+    });
+    await tester.pump();
+    session.active = tester.widget<HomeScreen>(find.byType(HomeScreen));
+    expect(session.mode.on, isFalse);
+    expect(old.isDisposed, isTrue);
+    expect(find.text('다시 저장'), findsNothing);
+    expect(
+      await tester.runAsync(() => session.active.db.eventsOfKind('walk')),
+      isEmpty,
+    );
+  });
+
   testWidgets('연습 종료는 대기 중인 시간 저장과 깨우기가 끝난 뒤 실제 펫으로 바꾼다', (tester) async {
     final session = await mount(tester);
     final old = session.home.controller;

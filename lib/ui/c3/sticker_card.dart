@@ -61,9 +61,11 @@ Future<T?> showC3Dialog<T>(
   required String title,
   required Widget body,
   List<Widget>? actions,
+  RouteSettings? routeSettings,
 }) {
   return showDialog<T>(
     context: context,
+    routeSettings: routeSettings,
     builder: (context) => Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,

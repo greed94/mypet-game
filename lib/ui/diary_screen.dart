@@ -8,12 +8,19 @@ import 'c3/c3_theme.dart';
 import 'c3/sticker_card.dart';
 import 'keep_words.dart';
 import 'kinder_photo_card.dart';
+import 'walk_journal.dart';
 
 class DiaryScreen extends StatefulWidget {
-  const DiaryScreen({super.key, required this.controller, required this.db});
+  const DiaryScreen({
+    super.key,
+    required this.controller,
+    required this.db,
+    this.visible = true,
+  });
 
   final PetController controller;
   final AppDatabase db;
+  final bool visible;
 
   @override
   State<DiaryScreen> createState() => _DiaryScreenState();
@@ -102,7 +109,11 @@ class _DiaryScreenState extends State<DiaryScreen> {
     bool current() =>
         mounted && controller == widget.controller && db == widget.db;
     bool usable() =>
-        current() && !controller.isResetting && !controller.isDisposed;
+        current() &&
+        widget.visible &&
+        ModalRoute.of(context)?.isCurrent == true &&
+        !controller.isResetting &&
+        !controller.isDisposed;
     try {
       final now = controller.now();
       final diary = await controller.writeDiary(now, save: false);
@@ -186,6 +197,23 @@ class _DiaryScreenState extends State<DiaryScreen> {
                 child: Text(_busy ? '쓰는 중…' : '오늘 미리 보기'),
               ),
             ],
+          ),
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextButton.icon(
+              icon: const Icon(Icons.map_outlined, size: 19),
+              label: const Text('산책 기록'),
+              onPressed: () => Navigator.of(context).push<void>(
+                MaterialPageRoute(
+                  settings: const RouteSettings(name: WalkJournal.routeName),
+                  builder: (_) =>
+                      WalkJournal(db: widget.db, controller: widget.controller),
+                ),
+              ),
+            ),
           ),
         ),
         Expanded(

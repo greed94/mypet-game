@@ -739,7 +739,14 @@ class _HomeScreenState extends State<HomeScreen> {
               index: _tab,
               children: [
                 _home(c, typing),
-                DiaryScreen(controller: c, db: widget.db, visible: _tab == 1),
+                TickerMode(
+                  enabled: _tab == 1,
+                  child: DiaryScreen(
+                    controller: c,
+                    db: widget.db,
+                    visible: _tab == 1,
+                  ),
+                ),
                 CollectionScreen(controller: c),
               ],
             ),

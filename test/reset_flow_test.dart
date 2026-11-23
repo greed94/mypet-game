@@ -248,6 +248,8 @@ void main() {
     expect(oldDialogCount, 0);
     expect(find.text('오늘 지금까지'), findsNothing);
     expect(find.byType(OnboardingScreen), findsOneWidget);
+    // Let the diary query finish unsubscribing after the reset removed its view.
+    await tester.pump(const Duration(milliseconds: 20));
     expect(tester.takeException(), isNull);
   });
 

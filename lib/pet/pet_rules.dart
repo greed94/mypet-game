@@ -187,9 +187,12 @@ const dayStartHour = 5;
 
 /// [t]가 속한 하루의 날짜(자정 시각). 새벽 4시는 아직 전날이다.
 DateTime petDate(DateTime t) {
-  final s = t.subtract(const Duration(hours: dayStartHour));
-  return DateTime(s.year, s.month, s.day);
+  return DateTime(t.year, t.month, t.day - (t.hour < dayStartHour ? 1 : 0));
 }
+
+/// [day]는 달력에 적힌 펫 날짜다. 현지 시각 05시 사이의 길이가 23시간 또는 25시간인 날도 있다.
+DateTime petDayStart(DateTime day, {int offsetDays = 0}) =>
+    DateTime(day.year, day.month, day.day + offsetDays, dayStartHour);
 
 String dayKey(DateTime t) =>
     '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';

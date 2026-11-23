@@ -720,7 +720,7 @@ class PetController extends ChangeNotifier {
   void _rollWish(DateTime now) {
     final today = dayKey(petDate(now));
     if (_pet.wishDay == today || !_tricksReady || !_friendsReady) return;
-    final yesterday = dayKey(petDate(now).subtract(const Duration(days: 1)));
+    final yesterday = dayKey(petDayStart(petDate(now), offsetDays: -1));
     final w = pickWish(
       avoid: _pet.wishDay == yesterday ? Wish.decode(_pet.wish)?.kind : null,
       now: now,
@@ -865,6 +865,10 @@ class PetController extends ChangeNotifier {
   DateTime? _lastPetLogged;
   String? _weatherLoggedDay;
   String? _diaryCheckedDay;
+  String? _diaryWritingDay;
+  Future<void>? _diaryWriting;
+  bool diarySaveFailed = false;
+  bool get writingDueDiaries => _diaryWriting != null;
   DateTime? _lastBond;
   DateTime? _aiDownUntil;
   final _loggedOnce = <String>{};
@@ -1319,7 +1323,7 @@ class PetController extends ChangeNotifier {
   Future<void> _maybeShowOff(DateTime now) async {
     if (walking || out || ball != Ball.none || _asleepAt(now)) return;
     if (stats.energy < tiredEnergy) return;
-    final yesterday = dayKey(petDate(now).subtract(const Duration(days: 1)));
+    final yesterday = dayKey(petDayStart(petDate(now), offsetDays: -1));
     final t = showOffTrick(tricks, yesterday);
     if (t == null) return;
     if ((await _db.eventsOn(now)).any((e) => e.kind == 'show_off')) return;
@@ -1552,19 +1556,57 @@ class PetController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 하루가 바뀐 뒤 처음 열 때 어제 일기를 쓴다. 내장 AI는 앱이 떠 있을 때만 돌아서 자정에는 못 쓴다.
-  Future<void> _diaryForYesterday(DateTime now) async {
-    final today = dayKey(petDate(now));
-    if (_diaryCheckedDay == today) return;
-    _diaryCheckedDay = today;
+  /// 앱을 열거나 펼쳐 둔 일기장이 새벽 5시를 지날 때 같은 작업을 공유한다.
+  Future<void> refreshDueDiaries() => _disposed || _resetPending
+      ? Future.value()
+      : _tracked(_diaryForYesterday(_clock()));
+
+  Future<void> _diaryForYesterday(DateTime now) {
+    final day = dayKey(petDate(now));
+    if (_disposed || _resetPending || _diaryCheckedDay == day) {
+      return Future.value();
+    }
+    final pending = _diaryWriting;
+    if (pending != null) {
+      return _diaryWritingDay == day
+          ? pending
+          : pending.then((_) => _diaryForYesterday(_clock()));
+    }
+    _diaryWritingDay = day;
+    final writing = _fillMissingDiaries(now)
+        .then(
+          (_) {
+            _diaryCheckedDay = day;
+            diarySaveFailed = false;
+          },
+          onError: (Object _) {
+            // 저장하지 못한 날짜는 다음 앱 재개나 일기장의 다시 쓰기에서 같은 재료로 복구한다.
+            diarySaveFailed = true;
+            Telemetry.track('diary_storage_error');
+          },
+        )
+        .whenComplete(() {
+          _diaryWriting = null;
+          _diaryWritingDay = null;
+          if (!_disposed) notifyListeners();
+        });
+    _diaryWriting = writing;
+    scheduleMicrotask(() {
+      if (!_disposed && identical(_diaryWriting, writing)) notifyListeners();
+    });
+    return writing;
+  }
+
+  Future<void> _fillMissingDiaries(DateTime now) async {
     // 같이 열린 하원 처리의 수업·발표회 기록이 먼저 남아야 그날 일기에 들어간다.
     await _lesson;
     await _recital;
     // 며칠 만에 열면 그 사이 일이 있었던 날(일주일까지)은 폰이 쓴다. 버스 하원·못 본 발표회·유치원 사진처럼
     // 다음에 열 때 그날 시각으로 남는 일이 있어서, 어제만 쓰면 그날 일기와 사진이 영영 안 보였다.
     // AI는 어제 일기에만 쓴다(한 번에 여러 번 부르지 않게).
+    final today = petDate(now);
     for (var back = 7; back >= 1; back--) {
-      final day = now.subtract(Duration(days: back));
+      final day = petDayStart(today, offsetDays: -back);
       if (await _db.hasDiary(dayKey(petDate(day)))) continue;
       await _writeDiary(day, save: true, local: back > 1, automatic: true);
     }

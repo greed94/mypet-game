@@ -551,16 +551,16 @@ class AppDatabase extends _$AppDatabase {
       await addCarried(id, source, at, gift: source == FindSource.gift);
     }
     if (spot == null) return false;
-    final day = petDate(at).add(const Duration(hours: dayStartHour));
+    final date = petDate(at);
     final found =
         await (selectOnly(events)
               ..addColumns([events.id])
               ..where(
                 events.kind.equals('walk_spot') &
                     events.detail.equals(spot) &
-                    events.at.isBiggerOrEqualValue(day) &
+                    events.at.isBiggerOrEqualValue(petDayStart(date)) &
                     events.at.isSmallerThanValue(
-                      day.add(const Duration(days: 1)),
+                      petDayStart(date, offsetDays: 1),
                     ),
               )
               ..limit(1))
@@ -580,13 +580,36 @@ class AppDatabase extends _$AppDatabase {
             ..limit(limit))
           .watch();
 
-  /// [t]가 속한 하루(새벽 5시부터 다음 날 새벽 5시 전까지)에 있었던 일.
+  /// 일기 날짜 [day]의 돌봄 시각과 종류만 읽는다. 자정 뒤 05시 전 기록도 같은 일기에 들어간다.
+  Stream<List<({DateTime at, String kind})>> watchDiaryActions(
+    DateTime day,
+    Iterable<String> kinds,
+    int limit,
+  ) {
+    final start = petDayStart(day);
+    final end = petDayStart(day, offsetDays: 1);
+    final query = selectOnly(events)
+      ..addColumns([events.at, events.kind])
+      ..where(
+        events.at.isBiggerOrEqualValue(start) &
+            events.at.isSmallerThanValue(end) &
+            events.kind.isIn(kinds),
+      )
+      ..orderBy([OrderingTerm.asc(events.at), OrderingTerm.asc(events.id)])
+      ..limit(limit);
+    return query
+        .map((row) => (at: row.read(events.at)!, kind: row.read(events.kind)!))
+        .watch();
+  }
+
   Future<List<Event>> eventsOfKind(String kind) =>
       (select(events)..where((e) => e.kind.equals(kind))).get();
 
+  /// [t]가 속한 하루(새벽 5시부터 다음 날 새벽 5시 전까지)에 있었던 일.
   Future<List<Event>> eventsOn(DateTime t) {
-    final start = petDate(t).add(const Duration(hours: dayStartHour));
-    final end = start.add(const Duration(days: 1));
+    final day = petDate(t);
+    final start = petDayStart(day);
+    final end = petDayStart(day, offsetDays: 1);
     return (select(events)
           ..where(
             (e) =>

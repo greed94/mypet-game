@@ -3,11 +3,35 @@ import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mypet/pet/cues.dart';
 import 'package:mypet/pet/pet_rules.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
 const base = PetStats(mood: 65, hunger: 30, energy: 80, affection: 10);
 final afternoon = DateTime(2026, 9, 25, 14);
 
 void main() {
+  test('23시간·25시간인 날도 현지 05시에 일기 날짜가 바뀐다', () {
+    tzdata.initializeTimeZones();
+    final coast = tz.getLocation('America/Los_Angeles');
+    for (final (month, day, hours) in [(3, 8, 23), (11, 1, 25)]) {
+      final before = tz.TZDateTime(coast, 2026, month, day, 4, 59);
+      final after = tz.TZDateTime(coast, 2026, month, day, 5, 30);
+      expect(dayKey(petDate(before)), dayKey(DateTime(2026, month, day - 1)));
+      expect(dayKey(petDate(after)), dayKey(DateTime(2026, month, day)));
+      final date = petDate(before);
+      tz.TZDateTime inCoast(DateTime d) =>
+          tz.TZDateTime(coast, d.year, d.month, d.day, d.hour);
+      final start = inCoast(petDayStart(date));
+      final end = inCoast(petDayStart(date, offsetDays: 1));
+      expect(end.difference(start).inHours, hours);
+      expect(end.isAfter(before), isTrue);
+      expect(
+        inCoast(petDayStart(petDate(after), offsetDays: 1)).isAfter(after),
+        isTrue,
+      );
+    }
+  });
+
   group('applyElapsed', () {
     test('낮 6시간 비우면 배고파지고 기운이 줄어든다', () {
       final s = applyElapsed(

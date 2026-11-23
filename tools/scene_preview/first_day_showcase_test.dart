@@ -110,7 +110,11 @@ void main() {
     await record('첫 식사  ·  보리가 밥을 먹어요', 58);
     await tester.runAsync(() => c.settled);
     await tester.tap(find.text('일기').hitTestable());
-    await tester.pump();
+    await drain();
+    expect(find.text('처음 만남'), findsOneWidget);
+    expect(find.text('밥 먹기'), findsOneWidget);
+    final livePage = File('${output.path}/mypet-diary-first-page.png');
+    await capturePreview(tester, find.byKey(screen), livePage);
     await tester.runAsync(() => tester.tap(find.text('오늘 미리 보기')));
     await drain();
     expect(find.text('오늘 지금까지'), findsOneWidget);
@@ -134,7 +138,13 @@ void main() {
     await record('다음 날 아침  ·  테스트 시계를 앞당겼어요', 26);
     await tester.tap(find.text('일기').hitTestable());
     await drain();
-    await record('다시 펼친 일기  ·  어제의 첫 만남과 밥 한 끼', 42);
+    await tester.tap(find.text('그날의 발자국').hitTestable());
+    await drain();
+    expect(find.text('함께한 첫날'), findsOneWidget);
+    expect(find.text('밥 먹기'), findsOneWidget);
+    final savedPage = File('${output.path}/mypet-diary-saved-page.png');
+    await capturePreview(tester, find.byKey(screen), savedPage);
+    await record('다시 펼친 일기  ·  어제의 만남과 식사 시각', 42);
 
     await tester.tap(find.text('집').hitTestable());
     await drain();
@@ -174,6 +184,23 @@ void main() {
         '${output.path}/mypet-neighborhood.png',
       ]);
       expect(spread.exitCode, 0, reason: spread.stderr.toString());
+
+      final diarySpread = await Process.run('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-i',
+        livePage.path,
+        '-i',
+        savedPage.path,
+        '-filter_complex',
+        'hstack=inputs=2',
+        '-frames:v',
+        '1',
+        '${output.path}/mypet-diary-trail.png',
+      ]);
+      expect(diarySpread.exitCode, 0, reason: diarySpread.stderr.toString());
 
       final filters = ['pad=iw:ih+72:0:0:color=0x38312c'];
       for (final (n, chapter) in chapters.indexed) {

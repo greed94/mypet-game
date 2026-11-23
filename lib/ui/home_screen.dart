@@ -21,6 +21,7 @@ import '../pet/spots.dart';
 import '../pet/treasure.dart';
 import '../pet/treats.dart';
 import '../pet/tricks.dart';
+import '../pet/walk_log.dart' show WalkStepCoverage;
 import '../pet/wish.dart';
 import '../services/notifications.dart';
 import '../services/sfx.dart';
@@ -366,17 +367,20 @@ class _HomeScreenState extends State<HomeScreen> {
     final c = widget.controller;
     if (c.walking || !c.startWalk()) return;
     final session = ++_walkSession;
-    final counted = await _steps.start(c.updateWalkSteps);
-    if (!mounted || session != _walkSession || !c.walking) return;
-    if (!counted) {
-      Telemetry.track('steps_permission_denied');
-      _snack('걸음 수 권한이 없어서 시간만 재요.');
-    }
     _walkClock = Timer.periodic(
       const Duration(seconds: 1),
       (_) => setState(() {}),
     );
-    setState(() {});
+    final counted = await _steps.start(
+      (steps) => c.updateWalkSteps(steps, deviceTotal: _steps.deviceTotal),
+      onUnavailable: c.markWalkSensorUnavailable,
+    );
+    if (!mounted || session != _walkSession || !c.walking) return;
+    if (!counted && !c.walkSensorUnavailable) {
+      c.markWalkSensorUnavailable();
+      Telemetry.track('steps_permission_denied');
+      _snack('걸음 수 권한이 없어서 시간만 재요.');
+    }
   }
 
   Future<void> _confirmEndWalk() async {
@@ -427,8 +431,8 @@ class _HomeScreenState extends State<HomeScreen> {
     // 문만 나갔다 들어온 짧은 산책은 지도 대신 한 줄로.
     if (r.minutes == 0) {
       _snack(
-        '${r.minutes}분 동안 ${r.steps}걸음 산책했어요.'
-        '${r.finds > 0 ? ' 뭔가 물고 왔어요!' : ''}',
+        '잠깐 다녀왔어요 · ${walkStepLabel(r.steps, r.coverage)}'
+        '${r.finds > 0 ? ' · 뭔가 물고 왔어요!' : ''}',
       );
       return;
     }
@@ -440,6 +444,7 @@ class _HomeScreenState extends State<HomeScreen> {
         startedAt: r.startedAt,
         minutes: r.minutes,
         steps: r.steps,
+        coverage: r.coverage,
         finds: r.finds,
         spots: r.spots,
       ).whenComplete(() => c.uiBusy = false),
@@ -1175,7 +1180,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text('산책 중 · $mm:$ss', style: C3Text.label),
                   const SizedBox(height: 2),
                   Text(
-                    '${c.walkSteps}걸음',
+                    c.walkStepCoverage == WalkStepCoverage.timeOnly
+                        ? (c.walkSensorUnavailable ? '시간으로 기록 중' : '걸음 센서 대기 중')
+                        : walkStepLabel(c.walkSteps, c.walkStepCoverage),
                     style: C3Text.body.copyWith(color: C3Colors.ink2),
                   ),
                 ],

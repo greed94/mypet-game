@@ -31,6 +31,10 @@ void main() {
     );
     await db.customStatement('DROP INDEX events_kind_at');
     await db.customStatement('ALTER TABLE events DROP COLUMN walk_map');
+    await db.customStatement('ALTER TABLE pets DROP COLUMN pocket_step_credit');
+    await db.customStatement(
+      'ALTER TABLE pets DROP COLUMN pocket_welcome_pending',
+    );
     await db.customStatement('PRAGMA user_version = 32');
     await db.close();
 
@@ -221,16 +225,74 @@ void main() {
     );
   });
 
+  test('조용한 센서와 실제 0걸음, 중간 단절을 서로 다른 산책으로 보관한다', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    var now = DateTime(2026, 11, 24, 13);
+    final pet = await db.createPet(
+      name: '보리',
+      stage: PetStage.adult,
+      furMain: 1,
+      furSecond: 2,
+      marking: 3,
+      now: now.subtract(const Duration(days: 1)),
+    );
+    final c = PetController(db, pet, clock: () => now, random: Random(1));
+    addTearDown(c.dispose);
+    Future<void> finish() async {
+      now = now.add(const Duration(minutes: 2));
+      c.endWalk();
+      await c.settled;
+    }
+
+    expect(c.startWalk(), isTrue);
+    c.updateWalkSteps(-2);
+    await finish();
+    c.updateWalkSteps(101);
+    expect(c.walkSteps, 0);
+    expect(c.startWalk(), isTrue);
+    c.updateWalkSteps(0);
+    await finish();
+    expect(c.startWalk(), isTrue);
+    c.updateWalkSteps(90);
+    c.markWalkSensorUnavailable();
+    c.updateWalkSteps(32);
+    await finish();
+    final rows = await db.watchWalks(4).first;
+    expect(rows.map((r) => decodeWalkMap(r.walkMap)!.coverage), [
+      WalkStepCoverage.partial,
+      WalkStepCoverage.measured,
+      WalkStepCoverage.timeOnly,
+    ]);
+    expect(rows.map((r) => r.detail), [
+      '주인이랑 2분 산책했다 (확인한 90걸음)',
+      '주인이랑 2분 산책했다 (0걸음)',
+      '주인이랑 2분 산책했다 (시간으로 기록)',
+    ]);
+  });
+
   test('깨졌거나 더 새 형식인 지도는 기존 산책 문장을 계속 볼 수 있다', () {
     final start = DateTime(2026, 11, 24, 12);
     final valid = encodeWalkMap((
       startedAt: start,
       steps: 150,
+      coverage: WalkStepCoverage.measured,
       minutes: 4,
       finds: 0,
       spots: <WalkSpot>[],
     ));
     expect(decodeWalkMap(valid)?.steps, 150);
+    final legacy = jsonDecode(valid) as Map<String, dynamic>
+      ..remove('coverage');
+    expect(
+      decodeWalkMap(jsonEncode(legacy))?.coverage,
+      WalkStepCoverage.measured,
+    );
+    legacy['steps'] = 0;
+    expect(
+      decodeWalkMap(jsonEncode(legacy))?.coverage,
+      WalkStepCoverage.timeOnly,
+    );
     for (final broken in [
       null,
       '',

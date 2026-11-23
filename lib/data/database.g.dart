@@ -301,6 +301,32 @@ class $PetsTable extends Pets with TableInfo<$PetsTable, Pet> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _pocketStepCreditMeta = const VerificationMeta(
+    'pocketStepCredit',
+  );
+  @override
+  late final GeneratedColumn<int> pocketStepCredit = GeneratedColumn<int>(
+    'pocket_step_credit',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _pocketWelcomePendingMeta =
+      const VerificationMeta('pocketWelcomePending');
+  @override
+  late final GeneratedColumn<bool> pocketWelcomePending = GeneratedColumn<bool>(
+    'pocket_welcome_pending',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("pocket_welcome_pending" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _pocketDayMeta = const VerificationMeta(
     'pocketDay',
   );
@@ -703,6 +729,8 @@ class $PetsTable extends Pets with TableInfo<$PetsTable, Pet> {
     likeTaste,
     dislikeTaste,
     lastStepTotal,
+    pocketStepCredit,
+    pocketWelcomePending,
     pocketDay,
     pocketCount,
     windowNight,
@@ -923,6 +951,24 @@ class $PetsTable extends Pets with TableInfo<$PetsTable, Pet> {
         lastStepTotal.isAcceptableOrUnknown(
           data['last_step_total']!,
           _lastStepTotalMeta,
+        ),
+      );
+    }
+    if (data.containsKey('pocket_step_credit')) {
+      context.handle(
+        _pocketStepCreditMeta,
+        pocketStepCredit.isAcceptableOrUnknown(
+          data['pocket_step_credit']!,
+          _pocketStepCreditMeta,
+        ),
+      );
+    }
+    if (data.containsKey('pocket_welcome_pending')) {
+      context.handle(
+        _pocketWelcomePendingMeta,
+        pocketWelcomePending.isAcceptableOrUnknown(
+          data['pocket_welcome_pending']!,
+          _pocketWelcomePendingMeta,
         ),
       );
     }
@@ -1284,6 +1330,14 @@ class $PetsTable extends Pets with TableInfo<$PetsTable, Pet> {
         DriftSqlType.int,
         data['${effectivePrefix}last_step_total'],
       ),
+      pocketStepCredit: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}pocket_step_credit'],
+      )!,
+      pocketWelcomePending: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}pocket_welcome_pending'],
+      )!,
       pocketDay: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}pocket_day'],
@@ -1479,6 +1533,12 @@ class Pet extends DataClass implements Insertable<Pet> {
 
   /// 폰 누적 걸음을 마지막으로 읽은 값. 다음에 열 때 이 값과의 차이만 쓴다.
   final int? lastStepTotal;
+
+  /// 마지막으로 읽은 기기 계수까지 걸었지만 아직 주머니 발견물로 바꾸지 않은 걸음.
+  final int pocketStepCredit;
+
+  /// 산책에서 먼저 기기 계수를 읽었고, 첫 주머니 수집 선물은 아직 받지 않았다.
+  final bool pocketWelcomePending;
   final String? pocketDay;
   final int pocketCount;
   final String? windowNight;
@@ -1579,6 +1639,8 @@ class Pet extends DataClass implements Insertable<Pet> {
     this.likeTaste,
     this.dislikeTaste,
     this.lastStepTotal,
+    required this.pocketStepCredit,
+    required this.pocketWelcomePending,
     this.pocketDay,
     required this.pocketCount,
     this.windowNight,
@@ -1673,6 +1735,8 @@ class Pet extends DataClass implements Insertable<Pet> {
     if (!nullToAbsent || lastStepTotal != null) {
       map['last_step_total'] = Variable<int>(lastStepTotal);
     }
+    map['pocket_step_credit'] = Variable<int>(pocketStepCredit);
+    map['pocket_welcome_pending'] = Variable<bool>(pocketWelcomePending);
     if (!nullToAbsent || pocketDay != null) {
       map['pocket_day'] = Variable<String>(pocketDay);
     }
@@ -1818,6 +1882,8 @@ class Pet extends DataClass implements Insertable<Pet> {
       lastStepTotal: lastStepTotal == null && nullToAbsent
           ? const Value.absent()
           : Value(lastStepTotal),
+      pocketStepCredit: Value(pocketStepCredit),
+      pocketWelcomePending: Value(pocketWelcomePending),
       pocketDay: pocketDay == null && nullToAbsent
           ? const Value.absent()
           : Value(pocketDay),
@@ -1947,6 +2013,10 @@ class Pet extends DataClass implements Insertable<Pet> {
         serializer.fromJson<String?>(json['dislikeTaste']),
       ),
       lastStepTotal: serializer.fromJson<int?>(json['lastStepTotal']),
+      pocketStepCredit: serializer.fromJson<int>(json['pocketStepCredit']),
+      pocketWelcomePending: serializer.fromJson<bool>(
+        json['pocketWelcomePending'],
+      ),
       pocketDay: serializer.fromJson<String?>(json['pocketDay']),
       pocketCount: serializer.fromJson<int>(json['pocketCount']),
       windowNight: serializer.fromJson<String?>(json['windowNight']),
@@ -2023,6 +2093,8 @@ class Pet extends DataClass implements Insertable<Pet> {
         $PetsTable.$converterdislikeTasten.toJson(dislikeTaste),
       ),
       'lastStepTotal': serializer.toJson<int?>(lastStepTotal),
+      'pocketStepCredit': serializer.toJson<int>(pocketStepCredit),
+      'pocketWelcomePending': serializer.toJson<bool>(pocketWelcomePending),
       'pocketDay': serializer.toJson<String?>(pocketDay),
       'pocketCount': serializer.toJson<int>(pocketCount),
       'windowNight': serializer.toJson<String?>(windowNight),
@@ -2089,6 +2161,8 @@ class Pet extends DataClass implements Insertable<Pet> {
     Value<Taste?> likeTaste = const Value.absent(),
     Value<Taste?> dislikeTaste = const Value.absent(),
     Value<int?> lastStepTotal = const Value.absent(),
+    int? pocketStepCredit,
+    bool? pocketWelcomePending,
     Value<String?> pocketDay = const Value.absent(),
     int? pocketCount,
     Value<String?> windowNight = const Value.absent(),
@@ -2154,6 +2228,8 @@ class Pet extends DataClass implements Insertable<Pet> {
     lastStepTotal: lastStepTotal.present
         ? lastStepTotal.value
         : this.lastStepTotal,
+    pocketStepCredit: pocketStepCredit ?? this.pocketStepCredit,
+    pocketWelcomePending: pocketWelcomePending ?? this.pocketWelcomePending,
     pocketDay: pocketDay.present ? pocketDay.value : this.pocketDay,
     pocketCount: pocketCount ?? this.pocketCount,
     windowNight: windowNight.present ? windowNight.value : this.windowNight,
@@ -2237,6 +2313,12 @@ class Pet extends DataClass implements Insertable<Pet> {
       lastStepTotal: data.lastStepTotal.present
           ? data.lastStepTotal.value
           : this.lastStepTotal,
+      pocketStepCredit: data.pocketStepCredit.present
+          ? data.pocketStepCredit.value
+          : this.pocketStepCredit,
+      pocketWelcomePending: data.pocketWelcomePending.present
+          ? data.pocketWelcomePending.value
+          : this.pocketWelcomePending,
       pocketDay: data.pocketDay.present ? data.pocketDay.value : this.pocketDay,
       pocketCount: data.pocketCount.present
           ? data.pocketCount.value
@@ -2333,6 +2415,8 @@ class Pet extends DataClass implements Insertable<Pet> {
           ..write('likeTaste: $likeTaste, ')
           ..write('dislikeTaste: $dislikeTaste, ')
           ..write('lastStepTotal: $lastStepTotal, ')
+          ..write('pocketStepCredit: $pocketStepCredit, ')
+          ..write('pocketWelcomePending: $pocketWelcomePending, ')
           ..write('pocketDay: $pocketDay, ')
           ..write('pocketCount: $pocketCount, ')
           ..write('windowNight: $windowNight, ')
@@ -2401,6 +2485,8 @@ class Pet extends DataClass implements Insertable<Pet> {
     likeTaste,
     dislikeTaste,
     lastStepTotal,
+    pocketStepCredit,
+    pocketWelcomePending,
     pocketDay,
     pocketCount,
     windowNight,
@@ -2468,6 +2554,8 @@ class Pet extends DataClass implements Insertable<Pet> {
           other.likeTaste == this.likeTaste &&
           other.dislikeTaste == this.dislikeTaste &&
           other.lastStepTotal == this.lastStepTotal &&
+          other.pocketStepCredit == this.pocketStepCredit &&
+          other.pocketWelcomePending == this.pocketWelcomePending &&
           other.pocketDay == this.pocketDay &&
           other.pocketCount == this.pocketCount &&
           other.windowNight == this.windowNight &&
@@ -2533,6 +2621,8 @@ class PetsCompanion extends UpdateCompanion<Pet> {
   final Value<Taste?> likeTaste;
   final Value<Taste?> dislikeTaste;
   final Value<int?> lastStepTotal;
+  final Value<int> pocketStepCredit;
+  final Value<bool> pocketWelcomePending;
   final Value<String?> pocketDay;
   final Value<int> pocketCount;
   final Value<String?> windowNight;
@@ -2596,6 +2686,8 @@ class PetsCompanion extends UpdateCompanion<Pet> {
     this.likeTaste = const Value.absent(),
     this.dislikeTaste = const Value.absent(),
     this.lastStepTotal = const Value.absent(),
+    this.pocketStepCredit = const Value.absent(),
+    this.pocketWelcomePending = const Value.absent(),
     this.pocketDay = const Value.absent(),
     this.pocketCount = const Value.absent(),
     this.windowNight = const Value.absent(),
@@ -2660,6 +2752,8 @@ class PetsCompanion extends UpdateCompanion<Pet> {
     this.likeTaste = const Value.absent(),
     this.dislikeTaste = const Value.absent(),
     this.lastStepTotal = const Value.absent(),
+    this.pocketStepCredit = const Value.absent(),
+    this.pocketWelcomePending = const Value.absent(),
     this.pocketDay = const Value.absent(),
     this.pocketCount = const Value.absent(),
     this.windowNight = const Value.absent(),
@@ -2734,6 +2828,8 @@ class PetsCompanion extends UpdateCompanion<Pet> {
     Expression<String>? likeTaste,
     Expression<String>? dislikeTaste,
     Expression<int>? lastStepTotal,
+    Expression<int>? pocketStepCredit,
+    Expression<bool>? pocketWelcomePending,
     Expression<String>? pocketDay,
     Expression<int>? pocketCount,
     Expression<String>? windowNight,
@@ -2798,6 +2894,9 @@ class PetsCompanion extends UpdateCompanion<Pet> {
       if (likeTaste != null) 'like_taste': likeTaste,
       if (dislikeTaste != null) 'dislike_taste': dislikeTaste,
       if (lastStepTotal != null) 'last_step_total': lastStepTotal,
+      if (pocketStepCredit != null) 'pocket_step_credit': pocketStepCredit,
+      if (pocketWelcomePending != null)
+        'pocket_welcome_pending': pocketWelcomePending,
       if (pocketDay != null) 'pocket_day': pocketDay,
       if (pocketCount != null) 'pocket_count': pocketCount,
       if (windowNight != null) 'window_night': windowNight,
@@ -2865,6 +2964,8 @@ class PetsCompanion extends UpdateCompanion<Pet> {
     Value<Taste?>? likeTaste,
     Value<Taste?>? dislikeTaste,
     Value<int?>? lastStepTotal,
+    Value<int>? pocketStepCredit,
+    Value<bool>? pocketWelcomePending,
     Value<String?>? pocketDay,
     Value<int>? pocketCount,
     Value<String?>? windowNight,
@@ -2929,6 +3030,8 @@ class PetsCompanion extends UpdateCompanion<Pet> {
       likeTaste: likeTaste ?? this.likeTaste,
       dislikeTaste: dislikeTaste ?? this.dislikeTaste,
       lastStepTotal: lastStepTotal ?? this.lastStepTotal,
+      pocketStepCredit: pocketStepCredit ?? this.pocketStepCredit,
+      pocketWelcomePending: pocketWelcomePending ?? this.pocketWelcomePending,
       pocketDay: pocketDay ?? this.pocketDay,
       pocketCount: pocketCount ?? this.pocketCount,
       windowNight: windowNight ?? this.windowNight,
@@ -3058,6 +3161,14 @@ class PetsCompanion extends UpdateCompanion<Pet> {
     }
     if (lastStepTotal.present) {
       map['last_step_total'] = Variable<int>(lastStepTotal.value);
+    }
+    if (pocketStepCredit.present) {
+      map['pocket_step_credit'] = Variable<int>(pocketStepCredit.value);
+    }
+    if (pocketWelcomePending.present) {
+      map['pocket_welcome_pending'] = Variable<bool>(
+        pocketWelcomePending.value,
+      );
     }
     if (pocketDay.present) {
       map['pocket_day'] = Variable<String>(pocketDay.value);
@@ -3197,6 +3308,8 @@ class PetsCompanion extends UpdateCompanion<Pet> {
           ..write('likeTaste: $likeTaste, ')
           ..write('dislikeTaste: $dislikeTaste, ')
           ..write('lastStepTotal: $lastStepTotal, ')
+          ..write('pocketStepCredit: $pocketStepCredit, ')
+          ..write('pocketWelcomePending: $pocketWelcomePending, ')
           ..write('pocketDay: $pocketDay, ')
           ..write('pocketCount: $pocketCount, ')
           ..write('windowNight: $windowNight, ')
@@ -6789,6 +6902,8 @@ typedef $$PetsTableCreateCompanionBuilder =
       Value<Taste?> likeTaste,
       Value<Taste?> dislikeTaste,
       Value<int?> lastStepTotal,
+      Value<int> pocketStepCredit,
+      Value<bool> pocketWelcomePending,
       Value<String?> pocketDay,
       Value<int> pocketCount,
       Value<String?> windowNight,
@@ -6854,6 +6969,8 @@ typedef $$PetsTableUpdateCompanionBuilder =
       Value<Taste?> likeTaste,
       Value<Taste?> dislikeTaste,
       Value<int?> lastStepTotal,
+      Value<int> pocketStepCredit,
+      Value<bool> pocketWelcomePending,
       Value<String?> pocketDay,
       Value<int> pocketCount,
       Value<String?> windowNight,
@@ -7038,6 +7155,16 @@ class $$PetsTableFilterComposer extends Composer<_$AppDatabase, $PetsTable> {
 
   ColumnFilters<int> get lastStepTotal => $composableBuilder(
     column: $table.lastStepTotal,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get pocketStepCredit => $composableBuilder(
+    column: $table.pocketStepCredit,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get pocketWelcomePending => $composableBuilder(
+    column: $table.pocketWelcomePending,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7360,6 +7487,16 @@ class $$PetsTableOrderingComposer extends Composer<_$AppDatabase, $PetsTable> {
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get pocketStepCredit => $composableBuilder(
+    column: $table.pocketStepCredit,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get pocketWelcomePending => $composableBuilder(
+    column: $table.pocketWelcomePending,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get pocketDay => $composableBuilder(
     column: $table.pocketDay,
     builder: (column) => ColumnOrderings(column),
@@ -7639,6 +7776,16 @@ class $$PetsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<int> get pocketStepCredit => $composableBuilder(
+    column: $table.pocketStepCredit,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get pocketWelcomePending => $composableBuilder(
+    column: $table.pocketWelcomePending,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get pocketDay =>
       $composableBuilder(column: $table.pocketDay, builder: (column) => column);
 
@@ -7826,6 +7973,8 @@ class $$PetsTableTableManager
                 Value<Taste?> likeTaste = const Value.absent(),
                 Value<Taste?> dislikeTaste = const Value.absent(),
                 Value<int?> lastStepTotal = const Value.absent(),
+                Value<int> pocketStepCredit = const Value.absent(),
+                Value<bool> pocketWelcomePending = const Value.absent(),
                 Value<String?> pocketDay = const Value.absent(),
                 Value<int> pocketCount = const Value.absent(),
                 Value<String?> windowNight = const Value.absent(),
@@ -7889,6 +8038,8 @@ class $$PetsTableTableManager
                 likeTaste: likeTaste,
                 dislikeTaste: dislikeTaste,
                 lastStepTotal: lastStepTotal,
+                pocketStepCredit: pocketStepCredit,
+                pocketWelcomePending: pocketWelcomePending,
                 pocketDay: pocketDay,
                 pocketCount: pocketCount,
                 windowNight: windowNight,
@@ -7954,6 +8105,8 @@ class $$PetsTableTableManager
                 Value<Taste?> likeTaste = const Value.absent(),
                 Value<Taste?> dislikeTaste = const Value.absent(),
                 Value<int?> lastStepTotal = const Value.absent(),
+                Value<int> pocketStepCredit = const Value.absent(),
+                Value<bool> pocketWelcomePending = const Value.absent(),
                 Value<String?> pocketDay = const Value.absent(),
                 Value<int> pocketCount = const Value.absent(),
                 Value<String?> windowNight = const Value.absent(),
@@ -8017,6 +8170,8 @@ class $$PetsTableTableManager
                 likeTaste: likeTaste,
                 dislikeTaste: dislikeTaste,
                 lastStepTotal: lastStepTotal,
+                pocketStepCredit: pocketStepCredit,
+                pocketWelcomePending: pocketWelcomePending,
                 pocketDay: pocketDay,
                 pocketCount: pocketCount,
                 windowNight: windowNight,

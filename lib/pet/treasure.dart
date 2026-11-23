@@ -111,12 +111,13 @@ int stepsSince(int? last, int now) {
 
 const pocketStepsPerFind = 1500, pocketPerOpen = 3, pocketPerDay = 5;
 
-/// 다음에 뺄 기준값. 상한에 안 걸렸으면 1500걸음이 안 된 나머지를 다음 번으로 넘긴다.
-/// 넘기지 않으면 자주 여는 사람일수록 나머지가 계속 버려져 아무것도 못 줍는다.
+/// 상한에 닿지 않았으면 아직 발견물이 되지 않은 걸음을 다음 수집까지 남긴다.
+int remainingPocketSteps(int steps, int finds) =>
+    finds == steps ~/ pocketStepsPerFind ? steps % pocketStepsPerFind : 0;
+
+/// v33까지 사용한 차감식 기준. 예전 형식의 기준을 다루는 호출자도 같은 규칙을 쓴다.
 int nextStepBase(int total, int steps, int finds) =>
-    finds == steps ~/ pocketStepsPerFind
-    ? total - steps % pocketStepsPerFind
-    : total;
+    total - remainingPocketSteps(steps, finds);
 
 int pocketFinds(int steps, int foundToday) => min(
   min(steps ~/ pocketStepsPerFind, pocketPerOpen),

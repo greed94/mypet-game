@@ -674,6 +674,30 @@ void main() {
     });
   });
 
+  testWidgets('센서를 기다리는 산책은 시간을 재고 단절 뒤 마지막 확인값을 지도에 남긴다', (tester) async {
+    final home = await make(tester);
+    expect(home.c.startWalk(), isTrue);
+    await mount(tester, home);
+    expect(find.text('걸음 센서 대기 중'), findsOneWidget);
+    home.c.markWalkSensorUnavailable();
+    await tester.pump();
+    expect(find.text('시간으로 기록 중'), findsOneWidget);
+    home.c.updateWalkSteps(120);
+    await tester.pump();
+    expect(find.text('확인한 120걸음'), findsOneWidget);
+    home.now = home.now.add(const Duration(minutes: 2));
+    await tester.tap(find.text('집으로'));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(
+      tester.widget<WalkMap>(find.byType(WalkMap)).summary,
+      contains('확인한 120걸음'),
+    );
+    await tester.tap(find.text('확인'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 20));
+  });
+
   testWidgets('나갔다 바로 집으로 누르면 지도 대신 짧은 산책 안내만 보인다', (tester) async {
     final home = await make(tester);
     expect(home.c.startWalk(), isTrue);
@@ -681,7 +705,7 @@ void main() {
     await tester.tap(find.text('집으로'));
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.byType(WalkMap), findsNothing);
-    expect(find.text('0분 동안 0걸음 산책했어요.'), findsOneWidget);
+    expect(find.text('잠깐 다녀왔어요 · 시간으로 기록'), findsOneWidget);
     expect(home.c.uiBusy, isFalse);
   });
 
@@ -695,7 +719,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.byType(WalkMap), findsNothing);
     expect(find.byType(Dialog), findsNothing);
-    expect(find.text('0분 동안 0걸음 산책했어요.'), findsOneWidget);
+    expect(find.text('잠깐 다녀왔어요 · 시간으로 기록'), findsOneWidget);
     expect(home.c.uiBusy, isFalse);
   });
 

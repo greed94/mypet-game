@@ -16,6 +16,7 @@ Future<void> showWalkCard(
   required DateTime startedAt,
   required int minutes,
   required int steps,
+  required WalkStepCoverage coverage,
   required int finds,
   required List<WalkSpot> spots,
 }) => showC3Dialog<void>(
@@ -28,11 +29,18 @@ Future<void> showWalkCard(
     dayLabel: '${startedAt.year}년 ${startedAt.month}월 ${startedAt.day}일',
     summary: [
       '$minutes분',
-      if (steps > 0) '${formatWalkSteps(steps)}걸음',
+      walkStepLabel(steps, coverage),
       if (finds > 0) '뭔가 물고 왔어요',
     ].join(' · '),
   ),
 );
+
+String walkStepLabel(int steps, WalkStepCoverage coverage) =>
+    switch (coverage) {
+      WalkStepCoverage.timeOnly => '시간으로 기록',
+      WalkStepCoverage.measured => '${formatWalkSteps(steps)}걸음',
+      WalkStepCoverage.partial => '확인한 ${formatWalkSteps(steps)}걸음',
+    };
 
 String formatWalkSteps(int n) => n < 1000
     ? '$n'

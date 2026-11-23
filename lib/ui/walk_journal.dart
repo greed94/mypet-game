@@ -152,7 +152,7 @@ class _WalkJournalState extends State<WalkJournal> {
                               Text(
                                 walk == null
                                     ? event.detail
-                                    : '${walk.minutes}분 산책 · ${formatWalkSteps(walk.steps)}걸음',
+                                    : '${walk.minutes}분 산책 · ${walkStepLabel(walk.steps, walk.coverage)}',
                                 style: C3Text.pet.copyWith(fontSize: 21),
                               ),
                               if (walk != null && walk.spots.isNotEmpty)
@@ -179,6 +179,7 @@ class _WalkJournalState extends State<WalkJournal> {
                                       startedAt: walk.startedAt,
                                       minutes: walk.minutes,
                                       steps: walk.steps,
+                                      coverage: walk.coverage,
                                       finds: walk.finds,
                                       spots: walk.spots,
                                     ),

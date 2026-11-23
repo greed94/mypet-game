@@ -21,9 +21,13 @@ const walkSpotNames = [
 /// 킁킁댄 자리. [at]은 길 위 어디쯤인지(0~1).
 typedef WalkSpot = ({String name, double at});
 
+/// 시간만 잰 산책, 정상 측정, 또는 단절을 겪어 확인한 걸음만 남긴 산책.
+enum WalkStepCoverage { timeOnly, measured, partial }
+
 /// 산책이 끝났을 때 본 지도를 그대로 다시 펴기 위한 값. 시작 시각이 낙서 길의 씨앗이다.
 typedef WalkResult = ({
   int steps,
+  WalkStepCoverage coverage,
   int minutes,
   int finds,
   DateTime startedAt,
@@ -36,6 +40,7 @@ String encodeWalkMap(WalkResult walk, {String? receipt}) => jsonEncode({
   'startMs': walk.startedAt.millisecondsSinceEpoch,
   'minutes': walk.minutes,
   'steps': walk.steps,
+  'coverage': walk.coverage.name,
   'finds': walk.finds,
   'spots': [
     for (final spot in walk.spots) [spot.name, spot.at],
@@ -69,6 +74,14 @@ WalkResult? decodeWalkMap(String? value) {
       return (
         startedAt: DateTime.fromMillisecondsSinceEpoch(start),
         steps: steps,
+        // 이전 지도는 양수만 측정 여부가 분명하다.
+        coverage: switch (data['coverage']) {
+          'measured' => WalkStepCoverage.measured,
+          'partial' => WalkStepCoverage.partial,
+          'timeOnly' => WalkStepCoverage.timeOnly,
+          _ =>
+            steps > 0 ? WalkStepCoverage.measured : WalkStepCoverage.timeOnly,
+        },
         minutes: minutes,
         finds: finds,
         spots: spots,

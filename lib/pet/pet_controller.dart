@@ -155,6 +155,17 @@ class PetController extends ChangeNotifier {
   bool walking = false;
   DateTime? walkStartedAt;
   int walkSteps = 0;
+  int _walkSession = 0;
+  int? _walkDeviceTotal;
+  int? _pocketCreditAtWalkStart;
+  bool _hasWalkReading = false;
+  bool _walkStepGap = false;
+  bool get walkSensorUnavailable => _walkStepGap;
+  WalkStepCoverage get walkStepCoverage => !_hasWalkReading
+      ? WalkStepCoverage.timeOnly
+      : _walkStepGap
+      ? WalkStepCoverage.partial
+      : WalkStepCoverage.measured;
   ({Future<bool> saved, Future<bool> Function() retry})? lastWalkRecord;
   final _failedWalks = <String, Future<bool> Function()>{};
   int get unsavedWalkCount => _failedWalks.length;
@@ -1231,10 +1242,13 @@ class PetController extends ChangeNotifier {
       final raining = weather?.sky == Sky.rain;
       final found = <(Item, FindSource)>[];
       // 산책 중 걸음은 산책 보상으로 따로 준다. 여기서 세면 같은 걸음을 두 번 준다.
+      final walkSession = _walkSession;
       final total = walking ? null : await readStepTotal?.call();
-      if (total != null) {
-        final first = _pet.lastStepTotal == null;
-        final steps = stepsSince(_pet.lastStepTotal, total);
+      if (total != null && !walking && walkSession == _walkSession) {
+        // 첫 산책이 기기 기준을 남겼어도 주머니 수집 감사 선물은 한 번 준다.
+        final first = _pet.lastStepTotal == null || _pet.pocketWelcomePending;
+        final steps =
+            stepsSince(_pet.lastStepTotal, total) + _pet.pocketStepCredit;
         final today = dayKey(now);
         final already = _pet.pocketDay == today ? _pet.pocketCount : 0;
         final n = atKindergarten ? 0 : pocketFinds(steps, already);
@@ -1249,7 +1263,9 @@ class PetController extends ChangeNotifier {
           found.add((_pick(FindSource.gift, now, raining), FindSource.gift));
         }
         _pet = _pet.copyWith(
-          lastStepTotal: Value(nextStepBase(total, steps, n)),
+          lastStepTotal: Value(total),
+          pocketStepCredit: remainingPocketSteps(steps, n),
+          pocketWelcomePending: false,
           pocketDay: Value(today),
           pocketCount: already + n,
         );
@@ -2390,6 +2406,11 @@ class PetController extends ChangeNotifier {
     walkProposed = false;
     walkStartedAt = _clock();
     walkSteps = 0;
+    _walkSession++;
+    _walkDeviceTotal = null;
+    _pocketCreditAtWalkStart = null;
+    _hasWalkReading = false;
+    _walkStepGap = false;
     walkSniffs = 0;
     _walkRight = true;
     _plan.clear();
@@ -2398,9 +2419,24 @@ class PetController extends ChangeNotifier {
     return true;
   }
 
-  void updateWalkSteps(int steps) {
-    if (_disposed) return;
-    walkSteps = max(walkSteps, steps);
+  void updateWalkSteps(int steps, {int? deviceTotal}) {
+    if (_disposed || !walking || steps < walkSteps) return;
+    if (deviceTotal != null && deviceTotal >= 0) {
+      // 첫 유효 계수에서 산책을 시작하기 전 몫을 고정한다. 이후 기기가 다시 0이 되어도 보관한다.
+      _pocketCreditAtWalkStart ??=
+          _pet.pocketStepCredit +
+          max(0, stepsSince(_pet.lastStepTotal, deviceTotal) - steps);
+      _walkDeviceTotal = deviceTotal;
+    }
+    if (_hasWalkReading && steps == walkSteps) return;
+    _hasWalkReading = true;
+    walkSteps = steps;
+    notifyListeners();
+  }
+
+  void markWalkSensorUnavailable() {
+    if (_disposed || !walking || _walkStepGap) return;
+    _walkStepGap = true;
     notifyListeners();
   }
 
@@ -2410,6 +2446,7 @@ class PetController extends ChangeNotifier {
     if (!walking) {
       return (
         steps: 0,
+        coverage: WalkStepCoverage.timeOnly,
         minutes: 0,
         finds: 0,
         startedAt: now,
@@ -2438,8 +2475,15 @@ class PetController extends ChangeNotifier {
       if (rainGift) (_pick(FindSource.gift, now, raining).id, FindSource.gift),
     ];
     // 산책 걸음은 산책 보상으로 줬으니 다음에 열 때 주머니 걸음으로 다시 세지 않게 기준을 옮긴다.
-    if (_pet.lastStepTotal case final base?) {
-      _pet = _pet.copyWith(lastStepTotal: Value(base + walkSteps));
+    final oldBase = _pet.lastStepTotal;
+    final nextBase =
+        _walkDeviceTotal ?? (oldBase == null ? null : oldBase + walkSteps);
+    if (nextBase != null) {
+      _pet = _pet.copyWith(
+        lastStepTotal: Value(nextBase),
+        pocketStepCredit: _pocketCreditAtWalkStart ?? _pet.pocketStepCredit,
+        pocketWelcomePending: oldBase == null || _pet.pocketWelcomePending,
+      );
     }
     final r = afterWalk(stats, walkSteps, length);
     stats = r.stats;
@@ -2447,11 +2491,13 @@ class PetController extends ChangeNotifier {
     walking = false;
     Telemetry.track('walk_end', {
       'steps': walkSteps,
+      'coverage': walkStepCoverage.name,
       'minutes': length.inMinutes,
       'finds': n,
     });
     final result = (
       steps: walkSteps,
+      coverage: walkStepCoverage,
       minutes: length.inMinutes,
       finds: n,
       startedAt: started,
@@ -2483,7 +2529,13 @@ class PetController extends ChangeNotifier {
     final receipt =
         '${at.microsecondsSinceEpoch}-${random.nextInt(1 << 32)}-${random.nextInt(1 << 32)}';
     final map = encodeWalkMap(result, receipt: receipt);
-    final detail = '주인이랑 ${result.minutes}분 산책했다 (${result.steps}걸음)';
+    final duration = result.minutes == 0 ? '잠깐' : '${result.minutes}분';
+    final steps = switch (result.coverage) {
+      WalkStepCoverage.timeOnly => '시간으로 기록',
+      WalkStepCoverage.partial => '확인한 ${result.steps}걸음',
+      WalkStepCoverage.measured => '${result.steps}걸음',
+    };
+    final detail = '주인이랑 $duration 산책했다 ($steps)';
     final spot = walkSpotLine(result.spots);
     Telemetry.track('event', {'kind': 'walk'});
     final version = _reactionVersion;

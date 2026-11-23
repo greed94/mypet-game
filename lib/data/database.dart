@@ -49,6 +49,13 @@ class Pets extends Table {
 
   /// 폰 누적 걸음을 마지막으로 읽은 값. 다음에 열 때 이 값과의 차이만 쓴다.
   IntColumn get lastStepTotal => integer().nullable()();
+
+  /// 마지막으로 읽은 기기 계수까지 걸었지만 아직 주머니 발견물로 바꾸지 않은 걸음.
+  IntColumn get pocketStepCredit => integer().withDefault(const Constant(0))();
+
+  /// 산책에서 먼저 기기 계수를 읽었고, 첫 주머니 수집 선물은 아직 받지 않았다.
+  BoolColumn get pocketWelcomePending =>
+      boolean().withDefault(const Constant(false))();
   TextColumn get pocketDay => text().nullable()();
   IntColumn get pocketCount => integer().withDefault(const Constant(0))();
   TextColumn get windowNight => text().nullable()();
@@ -276,7 +283,7 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'mypet'));
 
   @override
-  int get schemaVersion => 33;
+  int get schemaVersion => 35;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -377,6 +384,8 @@ class AppDatabase extends _$AppDatabase {
       // v4 전에서 올라오면 이미 현재 버전의 하루 기록 표를 만들었다.
       if (from >= 4 && from < 33) await m.addColumn(events, events.walkMap);
       if (from < 33) await m.createIndex(eventsKindAt);
+      if (from < 34) await m.addColumn(pets, pets.pocketStepCredit);
+      if (from < 35) await m.addColumn(pets, pets.pocketWelcomePending);
       // Drift의 바깥 버전 저장 전에 종료돼도 칸과 버전이 함께 남아야 한다.
       await customStatement('PRAGMA user_version = $to');
     }),

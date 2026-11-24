@@ -110,6 +110,23 @@ void main() {
     );
   });
 
+  test('그만 놀기를 누른 뒤 늦은 대화 오류가 공놀이를 다시 열지 않는다', () async {
+    await open(1);
+    c.takeOutBall();
+    c.arrived();
+    expect(c.ball, Ball.ready);
+    final talking = c.talk('놀자');
+    await brain.turns.first.started.future;
+    c.putBallAway();
+    expect(c.ball, Ball.none);
+    brain.turns.first.answer.completeError(
+      BrainError('합성 지연 오류', kind: BrainErrorKind.network),
+    );
+    final result = await talking;
+    expect(c.ball, Ball.none);
+    expect(result, TalkOutcome.ignored);
+  });
+
   test('나중 질문이 먼저 답을 받으면 이전 연결 오류가 새 반응과 다음 연결을 덮지 않는다', () async {
     await open(3);
     final previousStatus = c.lastError;

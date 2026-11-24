@@ -2471,6 +2471,7 @@ class PetController extends ChangeNotifier {
   /// 놀이 칸을 닫으면 공을 치운다.
   void putBallAway() {
     if (ball == Ball.none) return;
+    _noteOwner();
     _clearBall();
     if (step.tag != StepTag.none || _plan.any((s) => s.tag != StepTag.none)) {
       _plan.clear();

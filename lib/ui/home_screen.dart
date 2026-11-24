@@ -1265,10 +1265,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _closePlayTray(PetController c) {
     final atCafe = c.atCafe;
-    if (atCafe) {
+    try {
+      if (!atCafe) c.putBallAway();
+    } finally {
+      // 공이 이미 치워졌거나 다음 행동 선택에서 실패해도 현재 상태로 다시 그린다.
       setState(() => _cafeTray = false);
-    } else {
-      c.putBallAway();
     }
     Telemetry.logPlayMenuClose(
       atCafe: atCafe,

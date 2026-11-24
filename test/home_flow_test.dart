@@ -322,6 +322,19 @@ void main() {
     );
   }
 
+  testWidgets('화면에 남은 놀이판은 내부 공이 이미 치워졌어도 닫힌다', (tester) async {
+    final home = await make(tester);
+    await mount(tester, home);
+    await tester.tap(find.text('놀아주기'));
+    await tester.pump();
+    home.c.ball = Ball.none; // 그리는 쪽에 알림이 도착하지 않은 상태를 재현한다.
+    expect(find.byType(PlayTray), findsOneWidget);
+    await tester.tap(find.text('그만 놀기'));
+    await tester.pump();
+    expect(find.byType(PlayTray), findsNothing);
+    expect(find.text('밥 주기').hitTestable(), findsOneWidget);
+  });
+
   Future<void> closeSpeechHome(WidgetTester tester) async {
     await tester.runAsync(() => tester.pumpWidget(const SizedBox()));
     await tester.pump();

@@ -193,7 +193,7 @@ void main() {
     expect(BrainError(privateError).message, privateError);
   });
 
-  test('Firebase 안전 차단도 폰 반응으로 이어지고 분류만 기록한다', () async {
+  test('Firebase 안전 차단에는 조용히 곁에 있고, 들은 사실만 남긴다', () async {
     final brain = FirebaseBrain(
       generate: (model, system, user, config, settings) async =>
           GenerateContentResponse(
@@ -207,11 +207,19 @@ void main() {
       expect(
         await Telemetry.captureEvents(
           (name, params) => events.add((name, params)),
-          () => f.c.talk('안녕'),
+          () => f.c.talk('이런 이야기를 해도 될까'),
         ),
         TalkOutcome.failed,
       );
-      expect(f.c.bubble, isNotNull);
+      expect(f.c.bubble, isNull);
+      expect(f.c.step.behavior, Behavior.walk);
+      expect(f.c.step.targetX, rugX);
+      expect(f.c.pet.lastCrisisAt, isNull);
+      expect(await f.db.recentMemories(10), isEmpty);
+      final heard = await f.db
+          .customSelect("SELECT detail FROM events WHERE kind = 'talk'")
+          .get();
+      expect(heard.map((row) => row.read<String>('detail')), ['주인이 말을 걸었다']);
       expect(
         events.where((e) => e.$1 == 'talk_outcome').last.$2['error'],
         'blocked',

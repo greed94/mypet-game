@@ -2021,6 +2021,7 @@ class PetController extends ChangeNotifier {
       return await _localTalk(
         input,
         quiet: quiet,
+        providerBlocked: e.kind == BrainErrorKind.blocked,
         heardEvent: heardEvent,
         at: heardAt,
         outcome: TalkOutcome.failed,
@@ -2070,8 +2071,16 @@ class PetController extends ChangeNotifier {
     required TalkOutcome outcome,
     required DateTime at,
     int? heardEvent,
+    bool providerBlocked = false,
   }) async {
-    final detail = _replyLocally(input, quiet: quiet);
+    final String? detail;
+    if (providerBlocked) {
+      // 차단 사유로 사용자의 기분이나 말뜻을 추측하지 않는다.
+      _quietBeside();
+      detail = heardEvent == null ? '주인이 말을 걸었다' : null;
+    } else {
+      detail = _replyLocally(input, quiet: quiet);
+    }
     final version = _reactionVersion;
     final recorded =
         detail == null || await _recordTalkDetail(detail, heardEvent, at);

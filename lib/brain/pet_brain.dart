@@ -126,6 +126,12 @@ const _crisisWords = [
   '사라져버리고싶',
   '없어져버리고싶',
   '죽어버릴까',
+  '그냥죽을까',
+  '사는게의미가없',
+  '내일눈안떴으면좋',
+  '내일눈을안떴으면좋',
+  '수면제다먹어버릴까',
+  '수면제를다먹어버릴까',
   '죽어버리겠',
   '손목긋고싶',
   '손목을긋고싶',
@@ -138,17 +144,25 @@ const _crisisWords = [
 const _notCrisis = ['자살골'];
 final _crisisSeparators = RegExp(r'[^가-힣ㅈㄱㅅㄷ]');
 final _englishCrisis = RegExp(
-  r'\b(?:i want to die|kill myself|end my life|suicide|suicidal)\b',
+  r'\b(?:i want to die|kill myself|end my life|suicide|suicidal|'
+  r'(?:wanna|want to|going to|gonna) kms)\b',
 );
+final _kmsAlone = RegExp(
+  r'^[\s\p{P}]*kms[\s\p{P}]*$',
+  caseSensitive: false,
+  unicode: true,
+);
+// 일·숙제처럼 끝내려는 대상이 명시된 일상 표현은 구분한다.
+final _endEverything = RegExp(r'^(?:나는?|난)?(?:이제|그냥|정말|진짜)*다끝내고싶');
 
 bool isCrisis(String text) {
   final english = text.toLowerCase().replaceAll(RegExp(r'[^a-z]+'), ' ');
-  if (_englishCrisis.hasMatch(english)) return true;
+  if (_kmsAlone.hasMatch(text) || _englishCrisis.hasMatch(english)) return true;
   var t = text.replaceAll(_crisisSeparators, '');
   for (final w in _notCrisis) {
     t = t.replaceAll(w, '');
   }
-  return _crisisWords.any(t.contains);
+  return _crisisWords.any(t.contains) || _endEverything.hasMatch(t);
 }
 
 /// 펫의 반응과 일기를 정해 주는 AI. 기본은 Firebase의 Gemini(firebase_brain.dart), 설정에서 넣은

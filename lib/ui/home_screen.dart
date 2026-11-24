@@ -1026,8 +1026,9 @@ class _HomeScreenState extends State<HomeScreen> {
             if (!c.out) {
               if (c.replaying) return _replayPanel(c);
               if (typing) return const SizedBox();
-              if (c.ball == Ball.none)
+              if (c.ball == Ball.none) {
                 return _actions(c, compact: !showActions);
+              }
             }
             final tray = _playTray(c, compact: !showActions, atCafe: c.out);
             if (!showActions) return tray;

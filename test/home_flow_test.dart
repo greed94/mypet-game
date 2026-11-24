@@ -315,6 +315,49 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('짧은 놀이 방에서는 속마음을 사진 아래에서 읽고 놀이를 끝내면 원래 자리로 돌아간다', (tester) async {
+    final home = await make(tester);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.padding = tester.view.viewPadding = const FakeViewPadding(
+      top: 24,
+      bottom: 48,
+    );
+    await mount(tester, home);
+    expect(home.game.showThoughtInRoom, isTrue);
+    await tester.tap(find.text('놀아주기').hitTestable());
+    await tester.pump();
+    final thought = home.c.bubble!;
+    final caption = find.widgetWithText(TextButton, thought);
+    final game = find.byType(GameWidget<PetGame>);
+    expect(home.game.showThoughtInRoom, isFalse);
+    expect(
+      tester.getTopLeft(caption).dy,
+      greaterThanOrEqualTo(tester.getBottomLeft(game).dy),
+    );
+    final announced = tester
+        .getSemantics(find.bySemanticsLabel('콩이의 속마음'))
+        .getSemanticsData();
+    expect(announced.value, thought);
+    await tester.tap(caption.hitTestable());
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('콩이의 속마음'), findsOneWidget);
+    await tester.tap(find.text('확인'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.bySemanticsLabel('일기'));
+    await tester.pump();
+    expect(home.game.showThoughtInRoom, isTrue);
+    await tester.tap(find.bySemanticsLabel('집'));
+    await tester.pump();
+    expect(home.game.showThoughtInRoom, isFalse);
+    await tester.tap(find.text('그만 놀기').hitTestable());
+    await tester.pump();
+    expect(home.game.showThoughtInRoom, isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(Duration.zero);
+  });
+
   for (final hold in [true, false]) {
     testWidgets(
       '집에서 그만 놀기를 누르는 동안 공이 준비된다 · ${hold ? '손가락을 댄 채' : '직전 위치를 탭'}',

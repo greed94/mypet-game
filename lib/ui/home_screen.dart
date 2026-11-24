@@ -879,7 +879,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return LayoutBuilder(
       builder: (context, box) {
         final compact = typing || box.maxHeight < 480;
-        _game.showThoughtInRoom = !compact;
         final room = _homeColumn(
           c,
           typing: typing,
@@ -936,86 +935,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Expanded(
           child: Padding(
             padding: EdgeInsets.fromLTRB(12, showActions ? 16 : 8, 12, 0),
-            child: ListenableBuilder(
-              listenable: c,
-              builder: (context, child) => Polaroid(
-                caption: _caption(c),
-                controls: _roomActions(c),
-                captionRight: showActions ? _captionRight(c) : null,
-                captionContent: !showActions && c.bubble != null
-                    ? _compactThought(c, c.bubble!, c.bubbleFromAi)
-                    : null,
-                action: typing || c.walking || c.out || c.replaying
-                    ? null
-                    : TextButton.icon(
-                        onPressed: _openMap,
-                        icon: const Icon(Icons.map_outlined, size: 17),
-                        label: const Text('동네 지도'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: C3Colors.ink,
-                          backgroundColor: C3Colors.tapeMint,
-                          textStyle: C3Text.label.copyWith(fontSize: 14),
-                          minimumSize: const Size(0, 32),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                        ),
-                      ),
-                child: child!,
-              ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ListenableBuilder(
-                    listenable: c,
-                    child: ExcludeFocus(
-                      child: GameWidget(game: _game, autofocus: false),
-                    ),
-                    builder: (context, game) {
-                      final thought = showActions ? c.bubble : null;
-                      bool canPet() =>
-                          mounted &&
-                          _acceptsInput &&
-                          identical(widget.controller, c) &&
-                          _tab == 0 &&
-                          !c.uiBusy &&
-                          !c.roomHidden &&
-                          !c.walking &&
-                          !c.out &&
-                          !c.replaying;
-                      final pettable = canPet();
-                      void pet() {
-                        if (canPet()) c.interact(Interaction.pet);
-                      }
-
-                      return _PetKeyboardTarget(
-                        onPet: pettable ? pet : null,
-                        child: Semantics(
-                          container: true,
-                          liveRegion: thought != null,
-                          button: pettable,
-                          onTap: pettable ? pet : null,
-                          onTapHint: pettable ? '쓰다듬기' : null,
-                          label: thought == null
-                              ? (pettable ? '${c.pet.name} 쓰다듬기' : c.pet.name)
-                              : '${c.pet.name}의 ${c.bubbleFromAi ? 'AI 속마음' : '속마음'}',
-                          value: thought,
-                          child: game,
-                        ),
-                      );
-                    },
-                  ),
-                  ListenableBuilder(
-                    listenable: c,
-                    builder: (context, _) => Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        _homeCamButton(c, compact: !showActions),
-                        _PawToast(controller: c),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            child: _roomPhoto(c, typing: typing, showActions: showActions),
           ),
         ),
         ListenableBuilder(
@@ -1081,6 +1001,102 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _roomPhoto(
+    PetController c, {
+    required bool typing,
+    required bool showActions,
+  }) {
+    return LayoutBuilder(
+      builder: (context, frame) => ListenableBuilder(
+        listenable: c,
+        child: ExcludeFocus(child: GameWidget(game: _game, autofocus: false)),
+        builder: (context, game) {
+          final controls = _roomActions(c);
+          final playing =
+              !c.walking &&
+              (c.out
+                  ? c.atCafe && _cafeTray
+                  : !typing && !c.replaying && c.ball != Ball.none);
+          // 사진틀에는 캡션과 선택 버튼도 들어간다. 놀이판을 연 뒤 사진이 낮아지면
+          // 강아지 머리 위에 구름을 겹쳐 그리지 않고 사진 아래에서 전문을 읽게 한다.
+          final shortPlayRoom =
+              _tab == 0 &&
+              playing &&
+              frame.maxHeight < 180 + (controls == null ? 0 : 48);
+          final inRoom = showActions && !shortPlayRoom;
+          _game.showThoughtInRoom = inRoom;
+          final thought = c.bubble;
+
+          bool canPet() =>
+              mounted &&
+              _acceptsInput &&
+              identical(widget.controller, c) &&
+              _tab == 0 &&
+              !c.uiBusy &&
+              !c.roomHidden &&
+              !c.walking &&
+              !c.out &&
+              !c.replaying;
+          final pettable = canPet();
+          void pet() {
+            if (canPet()) c.interact(Interaction.pet);
+          }
+
+          final roomThought = inRoom ? thought : null;
+          return Polaroid(
+            caption: _caption(c),
+            controls: controls,
+            captionRight: inRoom ? _captionRight(c) : null,
+            captionContent: !inRoom && thought != null
+                ? _compactThought(c, thought, c.bubbleFromAi)
+                : null,
+            action: typing || c.walking || c.out || c.replaying
+                ? null
+                : TextButton.icon(
+                    onPressed: _openMap,
+                    icon: const Icon(Icons.map_outlined, size: 17),
+                    label: const Text('동네 지도'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: C3Colors.ink,
+                      backgroundColor: C3Colors.tapeMint,
+                      textStyle: C3Text.label.copyWith(fontSize: 14),
+                      minimumSize: const Size(0, 32),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                  ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _PetKeyboardTarget(
+                  onPet: pettable ? pet : null,
+                  child: Semantics(
+                    container: true,
+                    liveRegion: roomThought != null,
+                    button: pettable,
+                    onTap: pettable ? pet : null,
+                    onTapHint: pettable ? '쓰다듬기' : null,
+                    label: roomThought == null
+                        ? (pettable ? '${c.pet.name} 쓰다듬기' : c.pet.name)
+                        : '${c.pet.name}의 ${c.bubbleFromAi ? 'AI 속마음' : '속마음'}',
+                    value: roomThought,
+                    child: game,
+                  ),
+                ),
+                Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _homeCamButton(c, compact: !showActions),
+                    _PawToast(controller: c),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 

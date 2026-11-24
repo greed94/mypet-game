@@ -77,9 +77,12 @@ class _WalkJournalState extends State<WalkJournal> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('산책 기록')),
-      bottomNavigationBar: ListenableBuilder(
-        listenable: widget.controller,
-        builder: (_, _) => WalkSaveNotice(controller: widget.controller),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: ListenableBuilder(
+          listenable: widget.controller,
+          builder: (_, _) => WalkSaveNotice(controller: widget.controller),
+        ),
       ),
       body: PaperBackground(
         child: SafeArea(

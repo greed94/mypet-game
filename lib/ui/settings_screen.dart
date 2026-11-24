@@ -481,7 +481,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('설정')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding:
+            MediaQuery.paddingOf(context).copyWith(top: 0) +
+            const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

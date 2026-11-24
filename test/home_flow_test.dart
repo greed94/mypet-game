@@ -254,6 +254,45 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final screen in [
+    (width: 320.0, height: 568.0, status: 24.0, nav: 24.0),
+    (width: 320.0, height: 568.0, status: 24.0, nav: 48.0),
+    (width: 320.0, height: 568.0, status: 0.0, nav: 0.0),
+    (width: 360.0, height: 640.0, status: 24.0, nav: 48.0),
+    (width: 384.0, height: 832.0, status: 24.0, nav: 24.0),
+  ]) {
+    testWidgets('홈 놀이판에서도 방과 종료 버튼이 보인다 $screen', (tester) async {
+      final home = await make(tester);
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(screen.width, screen.height);
+      tester.view.padding = FakeViewPadding(
+        top: screen.status,
+        bottom: screen.nav,
+      );
+      tester.view.viewPadding = tester.view.padding;
+      await mount(tester, home);
+      await tester.tap(find.text('놀아주기').hitTestable());
+      await tester.pump();
+      final room = tester.getRect(find.byType(GameWidget<PetGame>));
+      final close = find.widgetWithText(TextButton, '그만 놀기');
+      final closeRect = tester.getRect(close);
+      expect(tester.takeException(), isNull);
+      expect(room.height, greaterThanOrEqualTo(80));
+      expect(room.top, greaterThanOrEqualTo(screen.status));
+      expect(closeRect.bottom, lessThanOrEqualTo(screen.height - screen.nav));
+      for (final label in ['물어와', '훈련 수첩']) {
+        final action = find.text(label);
+        await tester.ensureVisible(action);
+        await tester.pump();
+        expect(action.hitTestable(), findsOneWidget, reason: label);
+        expect(tester.getRect(close), closeRect);
+      }
+      await tester.tap(close.hitTestable());
+      await tester.pump();
+      expect(find.byType(PlayTray), findsNothing);
+    });
+  }
+
   testWidgets('짧은 창에서도 밥을 주고 공놀이로 들어갔다가 다시 돌볼 수 있다', (tester) async {
     final home = await make(tester);
     tester.view.physicalSize = const Size(960, 1260);
@@ -716,6 +755,11 @@ void main() {
     expect(focus.hasFocus, isTrue);
     tester.view.viewInsets = const FakeViewPadding(bottom: 540);
     await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+    final keyboardTop =
+        (tester.view.physicalSize.height - tester.view.viewInsets.bottom) /
+        tester.view.devicePixelRatio;
+    expect(tester.getRect(field).bottom, lessThanOrEqualTo(keyboardTop));
     expect(
       tester.widget<EditableText>(find.byType(EditableText)).focusNode,
       same(focus),
@@ -1012,6 +1056,37 @@ void main() {
     final visits = await tester.runAsync(() => home.db.eventsOfKind('walk'));
     expect(visits!.single.detail, contains('18걸음'));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('산책 수첩에서 실패한 기록 다시 저장 버튼은 시스템 바 위에 있다', (tester) async {
+    final home = await make(tester);
+    tester.view.padding = tester.view.viewPadding = const FakeViewPadding(
+      bottom: 144,
+    );
+    await mount(tester, home);
+    await tester.runAsync(() async {
+      await home.db.customStatement(
+        "CREATE TRIGGER reject_walk BEFORE INSERT ON events WHEN NEW.kind='walk' BEGIN SELECT RAISE(ABORT, 'synthetic'); END",
+      );
+      expect(home.c.startWalk(), isTrue);
+      home.c.endWalk();
+      expect(await home.c.lastWalkRecord!.saved, isFalse);
+      await home.db.customStatement('DROP TRIGGER reject_walk');
+    });
+    await tester.tap(find.text('일기').hitTestable());
+    await tester.pump();
+    await tester.tap(find.text('산책 기록').hitTestable());
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 350));
+    final retry = find.widgetWithText(TextButton, '다시 저장').hitTestable();
+    final safeBottom =
+        (tester.view.physicalSize.height - tester.view.padding.bottom) /
+        tester.view.devicePixelRatio;
+    expect(tester.getRect(retry).bottom, lessThanOrEqualTo(safeBottom));
+    await tester.tap(retry);
+    await tester.runAsync(() => home.c.settled);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(Duration.zero);
   });
 
   for (final target in ['diary', 'home']) {

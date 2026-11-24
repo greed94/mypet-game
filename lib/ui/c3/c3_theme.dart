@@ -122,11 +122,14 @@ class GaugeColors {
   );
 }
 
-/// 종이 바탕 위 상태바: 투명 + 어두운 아이콘. 화면마다 달라지지 않게 한곳에서 쓴다.
+/// 밝은 종이 배경 위에서 상태바와 하단 탐색 아이콘이 모두 읽히게 한다.
 const c3SystemBars = SystemUiOverlayStyle(
   statusBarColor: Colors.transparent,
   statusBarIconBrightness: Brightness.dark,
   statusBarBrightness: Brightness.light,
+  systemNavigationBarColor: Colors.transparent,
+  systemNavigationBarIconBrightness: Brightness.dark,
+  systemNavigationBarContrastEnforced: false,
 );
 
 ThemeData buildC3Theme() {

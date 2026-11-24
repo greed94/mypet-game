@@ -151,7 +151,10 @@ class PlayTray extends StatelessWidget {
                     ),
                   ),
                 )
-              : tools,
+              : SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: tools,
+                ),
         ),
         const SizedBox(width: 8),
         close,
@@ -167,7 +170,10 @@ class PlayTray extends StatelessWidget {
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [chips, footer],
+                children: [
+                  Flexible(child: SingleChildScrollView(child: chips)),
+                  footer,
+                ],
               ),
       ),
     );

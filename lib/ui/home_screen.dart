@@ -885,6 +885,8 @@ class _HomeScreenState extends State<HomeScreen> {
           typing: typing,
           showGauges: !typing && box.maxHeight >= 600,
           showActions: !compact,
+          // 개인기 이름이 여러 줄로 감겨도 방과 대화 입력란을 남긴다.
+          maxPlayTrayHeight: box.maxHeight * .4,
         );
         // 화면 분할·시스템 여백이 큰 창에서도 방이 사라지지 않게 아래 입력줄까지 스크롤한다.
         return ListenableBuilder(
@@ -912,6 +914,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required bool typing,
     required bool showGauges,
     required bool showActions,
+    required double maxPlayTrayHeight,
   }) {
     return Column(
       children: [
@@ -1017,17 +1020,22 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         ListenableBuilder(
           listenable: c,
-          builder: (context, _) => c.walking
-              ? _walkPanel(c)
-              : c.out
-              ? (_cafeTray && c.atCafe
-                    ? _playTray(c, compact: !showActions, atCafe: true)
-                    : _placePanel(c))
-              : c.replaying
-              ? _replayPanel(c)
-              : (typing
-                    ? const SizedBox()
-                    : _actions(c, compact: !showActions)),
+          builder: (context, _) {
+            if (c.walking) return _walkPanel(c);
+            if (c.out && !(c.atCafe && _cafeTray)) return _placePanel(c);
+            if (!c.out) {
+              if (c.replaying) return _replayPanel(c);
+              if (typing) return const SizedBox();
+              if (c.ball == Ball.none)
+                return _actions(c, compact: !showActions);
+            }
+            final tray = _playTray(c, compact: !showActions, atCafe: c.out);
+            if (!showActions) return tray;
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxPlayTrayHeight),
+              child: tray,
+            );
+          },
         ),
         Padding(
           padding: EdgeInsets.fromLTRB(
@@ -1192,10 +1200,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return '$sky$day';
   }
 
-  Widget _actions(PetController c, {bool compact = false}) {
-    if (c.ball != Ball.none) {
-      return _playTray(c, compact: compact, atCafe: false);
-    }
+  Widget _actions(PetController c, {required bool compact}) {
     // 간식이 있으면 네 번째 스티커. 방 위에 두면 문 앞 펫을 가려 쓰다듬으려다 간식이 나갔다.
     final treats = c.pouch.length;
     final width = treats > 0 ? 80.0 : 104.0;

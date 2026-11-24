@@ -211,7 +211,9 @@ class _KnownDogScreenState extends State<KnownDogScreen> {
     return Scaffold(
       appBar: AppBar(title: Text(editing ? '아는 강아지 고치기' : '아는 강아지 데려오기')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding:
+            MediaQuery.paddingOf(context).copyWith(top: 0) +
+            const EdgeInsets.all(16),
         children: [
           Center(child: GuestFace(_preview, box: 112, cache: false)),
           const SizedBox(height: 8),

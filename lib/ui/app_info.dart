@@ -38,7 +38,9 @@ class _AppInfoScreenState extends State<AppInfoScreen> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('앱 정보와 출처')),
     body: ListView(
-      padding: const EdgeInsets.all(20),
+      padding:
+          MediaQuery.paddingOf(context).copyWith(top: 0) +
+          const EdgeInsets.all(20),
       children: [
         Text('마이펫', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 12),

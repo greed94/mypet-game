@@ -1257,6 +1257,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return PlayTray(
       key: _playTrayKey,
       compact: compact,
+      homePlay: !atCafe,
       hide: atCafe ? const {Trick.fetch} : const {},
       // 진단 프레임에서는 이 위젯이 받은 수치와 이후의 컨트롤러 수치를 구분한다.
       tricks: tracing ? Map.unmodifiable(c.tricks) : c.tricks,
@@ -1270,8 +1271,10 @@ class _HomeScreenState extends State<HomeScreen> {
       onThrow: !atCafe && c.ball == Ball.ready
           ? () => _playInput(c, PlayAction.throwBall, apply: _game.tossBall)
           : null,
-      treats: atCafe || c.ball == Ball.carried ? 0 : c.pouch.length,
-      onTreat: () => _playInput(c, PlayAction.treat, apply: c.giveTreat),
+      treats: atCafe ? 0 : c.pouch.length,
+      onTreat: atCafe || c.ball == Ball.carried
+          ? null
+          : () => _playInput(c, PlayAction.treat, apply: c.giveTreat),
       onClose: () => _playInput(
         c,
         PlayAction.close,

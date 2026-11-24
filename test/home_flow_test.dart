@@ -323,6 +323,88 @@ void main() {
     );
   }
 
+  testWidgets('S22에서 공을 주워 오는 동안 같은 자리의 물어와가 점프로 바뀌지 않는다', (tester) async {
+    final home = await make(tester, pouch: 'cheese_ball,jerky');
+    final chips = Trick.values.where((t) => t.chip);
+    for (final t in chips) {
+      home.c.tricks[t] = TrickProgress(
+        attempts: t == Trick.fetch ? 1 : 4,
+        successes: t == Trick.fetch ? 0 : 3,
+        days: 1,
+        lastDay: dayKey(petDate(home.now)),
+      );
+    }
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.625;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.1;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await mount(
+      tester,
+      home,
+      builder: (context, child) => C3SystemTextScale(
+        scaler: MediaQuery.textScalerOf(context),
+        child: MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1,
+          child: child!,
+        ),
+      ),
+    );
+    await tester.tap(find.text('놀아주기'));
+    await tester.pump();
+    await tester.tap(find.text('앉아').hitTestable());
+    await tester.pump();
+    await tester.tap(find.text('점프').hitTestable());
+    await tester.pump();
+    runUntil(home.c, () => home.c.ball == Ball.ready);
+    await tester.pump();
+
+    Map<String, Offset> targets() => {
+      for (final t in chips)
+        t.label: tester.getCenter(
+          find.bySemanticsLabel(RegExp('^${t.label},')).hitTestable(),
+        ),
+      '그만 놀기': tester.getCenter(find.bySemanticsLabel('그만 놀기').hitTestable()),
+    };
+    final original = targets();
+    final fetchAt = original[Trick.fetch.label]!;
+    final jumpBefore = home.c.tricks[Trick.jump]!.attempts;
+    var fetchCount = home.c.tricks[Trick.fetch]!.attempts;
+    final observed = <Map<String, Offset>>[];
+    for (var round = 0; round < 2; round++) {
+      expect(home.c.throwBall(), isTrue);
+      await tester.pump();
+      observed.add(targets());
+      home.c.ballLanded();
+      home.c.arrived();
+      expect(home.c.ball, Ball.carried);
+      await tester.pump();
+      observed.add(targets());
+      for (var tap = 0; tap < 3; tap++) {
+        await tester.tapAt(fetchAt);
+        await tester.pump();
+        expect(
+          home.c.tricks[Trick.fetch]!.attempts,
+          ++fetchCount,
+          reason: '공을 던지기 전 물어와 좌표로 계속 입력했다.',
+        );
+        expect(home.c.tricks[Trick.jump]!.attempts, jumpBefore);
+        observed.add(targets());
+      }
+      runUntil(home.c, () => home.c.ball == Ball.ready);
+      await tester.pump();
+      observed.add(targets());
+    }
+    expect(find.bySemanticsLabel('물어와, 별 1개'), findsOneWidget);
+    for (final positions in observed) {
+      expect(positions, original, reason: '공 상태와 배운 표시가 바뀌어도 누를 위치는 같다.');
+    }
+    await tester.tapAt(original['그만 놀기']!);
+    await tester.pump();
+    expect(find.byType(PlayTray), findsNothing);
+    expect(find.text('밥 주기').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('S22 놀이 순서의 각 물어와 입력에 판정·별·화면을 연결하고 종료한다', (tester) async {
     final home = await make(tester);
     final logs = <String>[];

@@ -1,0 +1,45 @@
+name: Pet care scenarios
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  care:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      FLUTTER_SUPPRESS_ANALYTICS: 'true'
+    steps:
+      - name: Check out the app and synthetic scenarios
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /pubspec.yaml
+            /pubspec.lock
+            /lib/
+            /assets/
+            /test/
+            /tools/persona_sim/
+
+      - name: Set up the project's Flutter SDK
+        run: |
+          git clone --quiet --depth 1 --branch 3.38.7 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = 3b62efc2a3da49882f43c372e0bc53daef7295a6
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Resolve locked dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Check learned sleep times, first care and reunion after restart
+        run: >
+          flutter test --no-pub --reporter expanded --concurrency=1
+          test/rhythm_test.dart test/rhythm_controller_test.dart
+          test/first_day_recognition_test.dart tools/persona_sim/persona_sim_test.dart
+
+      - name: Publish synthetic play observations in the run summary
+        run: cat build/persona_sim/summary.md >> "$GITHUB_STEP_SUMMARY"

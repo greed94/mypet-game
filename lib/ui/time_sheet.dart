@@ -63,7 +63,7 @@ class TimeSheet extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               keepWords(
-                '지금 앱 시각 ${now.month}월 ${now.day}일($day) ${now.hour}:$mm. '
+                '시간표를 연 시각 ${now.month}월 ${now.day}일($day) ${now.hour}:$mm. '
                 '펫의 하루는 새벽 5시에 시작해요.',
               ),
               style: C3Text.body.copyWith(color: C3Colors.ink2),

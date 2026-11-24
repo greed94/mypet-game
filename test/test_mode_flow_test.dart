@@ -23,6 +23,7 @@ class _DelayedModeFile implements File {
   File get staging => File('${file.path}.next');
   final started = Completer<void>();
   final release = Completer<void>();
+  final renamed = Completer<void>();
   final writes = <Map<String, dynamic>>[];
   bool failFirst = false;
 
@@ -51,7 +52,11 @@ class _DelayedModeFile implements File {
   }
 
   @override
-  Future<File> rename(String newPath) => staging.rename(newPath);
+  Future<File> rename(String newPath) async {
+    final file = await staging.rename(newPath);
+    if (!renamed.isCompleted) renamed.complete();
+    return file;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -98,6 +103,7 @@ void main() {
   Future<_Session> mount(
     WidgetTester tester, {
     Duration savedOffset = Duration.zero,
+    DateTime? openedAt,
     bool failPreviousClose = false,
   }) async {
     final dir = Directory.systemTemp.createTempSync('mypet_time_flow_');
@@ -112,7 +118,7 @@ void main() {
     tester.view.physicalSize = const Size(1080, 2637);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
-    final base = DateTime(2026, 10, 20, 10);
+    final base = openedAt ?? DateTime(2026, 10, 20, 10);
     final prepared = (await tester.runAsync(() async {
       final real = AppDatabase(NativeDatabase.memory());
       await real.createPet(
@@ -231,43 +237,73 @@ void main() {
     await tester.tap(find.text('다음 날 아침 9시'));
     await tester.pumpAndSettle();
     expect(now.add(chosen!), DateTime(2026, 11, 25, 9));
+    for (final (label, expected) in [
+      ('밤 11시', DateTime(2026, 11, 24, 23).difference(now)),
+      ('+10분', const Duration(minutes: 10)),
+    ]) {
+      await tester.tap(find.text('연습 시계'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text(label));
+      await tester.tap(find.text(label));
+      await tester.pumpAndSettle();
+      expect(chosen, expected);
+    }
   });
 
   testWidgets('첫 끼를 준 연습 펫과 다음 날 아침에 만나고 같은 기억은 한 번만 남긴다', (tester) async {
-    final session = await mount(tester);
+    final session = await mount(
+      tester,
+      openedAt: DateTime(2026, 10, 20, 10, 0, 10, 250),
+    );
     final c = session.home.controller;
     final db = session.home.db;
     final first = c.now();
     await tester.runAsync(() async {
       await db.queueFirstMeeting(first);
       await db.beginFirstMeeting(first);
-      c.interact(Interaction.feed);
-      await c.settled;
     });
+    await tester.runAsync(() => tester.tap(find.text('밥 주기').hitTestable()));
+    await tester.pump();
+    await tester.runAsync(() => c.settled);
     session.file.release.complete();
-    await tester.tap(find.text('시간 보내기 ›'));
+    await tester.runAsync(() => tester.tap(find.text('시간 보내기 ›')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     await tester.runAsync(() => tester.tap(find.text('다음 날 아침 9시')));
     await tester.pump();
-    for (var i = 0; i < 100 && session.mode.offset == Duration.zero; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    await tester.pump(const Duration(milliseconds: 400));
     await tester.runAsync(() async {
+      await session.file.renamed.future.timeout(const Duration(seconds: 10));
+      await pumpEventQueue();
       await c.settled;
       expect(c.now(), DateTime(first.year, first.month, first.day + 1, 9));
-      c.interact(Interaction.pet);
-      await c.settled;
-      expect(c.bubble, contains('밥 주던 손'));
-      c.interact(Interaction.pet);
-      await c.settled;
-      expect(await db.eventsOfKind('first_recognition'), hasLength(1));
-      expect(await db.allDiaries(), hasLength(1));
+      final reopened = await TestMode.load(session.file.file);
+      expect(reopened.offset, session.mode.offset);
     });
+    await tester.pump(const Duration(milliseconds: 400));
+    final room = find.byType(GameWidget<PetGame>);
+    final game = tester.widget<GameWidget<PetGame>>(room).game!;
+    final dog =
+        tester.getTopLeft(room) +
+        Offset(game.floorX(c.petX), game.petBaseline - 12 * game.pixelScale);
+    await tester.runAsync(() => tester.tapAt(dog));
+    await tester.runAsync(() => c.settled);
+    await tester.pump();
+    final thought = tester.getSemantics(find.bySemanticsLabel('콩이의 속마음'));
+    expect(thought.getSemanticsData().value, contains('밥 주던 손'));
+    await tester.runAsync(() => tester.tapAt(dog));
+    await tester.runAsync(() => c.settled);
+    await tester.runAsync(() => tester.tap(find.text('일기').hitTestable()));
+    await tester.pump();
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('그날의 발자국').hitTestable());
+    await tester.pump();
+    expect(find.text('밥 먹기'), findsOneWidget);
+    expect(
+      await tester.runAsync(() => db.eventsOfKind('first_recognition')),
+      hasLength(1),
+    );
+    expect(await tester.runAsync(() => db.allDiaries()), hasLength(1));
   });
 
   testWidgets('시간 저장 중 두 번째 시간 보내기는 첫 시계를 덮어쓰지 않는다', (tester) async {

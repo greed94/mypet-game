@@ -33,10 +33,13 @@ class TestMode {
   static Future<TestMode> load(File file) async {
     try {
       final j = jsonDecode(await file.readAsString()) as Map<String, Object?>;
+      final micros = j['offsetMicroseconds'];
       return TestMode(
         file,
         on: j['on'] == true,
-        offset: Duration(minutes: (j['offsetMinutes'] as num? ?? 0).toInt()),
+        offset: micros is int
+            ? Duration(microseconds: micros)
+            : Duration(minutes: (j['offsetMinutes'] as num? ?? 0).toInt()),
       );
     } on Object {
       return TestMode(file);
@@ -55,7 +58,11 @@ class TestMode {
   // 기록이 중간에 끊겨도 다음 실행이 마지막으로 완전히 저장된 상태를 읽도록 한다.
   Future<void> _persist(bool practice, Duration ahead) async {
     await _stagingFile.writeAsString(
-      jsonEncode({'on': practice, 'offsetMinutes': ahead.inMinutes}),
+      jsonEncode({
+        'on': practice,
+        'offsetMinutes': ahead.inMinutes,
+        'offsetMicroseconds': ahead.inMicroseconds,
+      }),
       flush: true,
     );
     await _stagingFile.rename(_file.path);

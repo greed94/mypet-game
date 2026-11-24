@@ -15,6 +15,7 @@ import 'package:mypet/pet/pet_rules.dart';
 import 'package:mypet/services/test_mode.dart';
 import 'package:mypet/ui/home_screen.dart';
 import 'package:mypet/ui/memory_notebook.dart';
+import 'package:mypet/ui/time_sheet.dart';
 
 class _DelayedModeFile implements File {
   _DelayedModeFile(this.file);
@@ -195,6 +196,79 @@ void main() {
     expect(tester.takeException(), isNull);
     return session;
   }
+
+  testWidgets('작은 화면에서 시트를 열어 둔 사이 05시가 지나면 누른 때의 다음 아침으로 간다', (tester) async {
+    tester.view.physicalSize = const Size(320, 420);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    var now = DateTime(2026, 11, 24, 4, 59);
+    Duration? chosen;
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                chosen = await showTimeSheet(context, () => now);
+              },
+              child: const Text('연습 시계'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('연습 시계'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    now = DateTime(2026, 11, 24, 5, 1);
+    await tester.ensureVisible(find.text('다음 날 아침 9시'));
+    await tester.tap(find.text('다음 날 아침 9시'));
+    await tester.pumpAndSettle();
+    expect(now.add(chosen!), DateTime(2026, 11, 25, 9));
+  });
+
+  testWidgets('첫 끼를 준 연습 펫과 다음 날 아침에 만나고 같은 기억은 한 번만 남긴다', (tester) async {
+    final session = await mount(tester);
+    final c = session.home.controller;
+    final db = session.home.db;
+    final first = c.now();
+    await tester.runAsync(() async {
+      await db.queueFirstMeeting(first);
+      await db.beginFirstMeeting(first);
+      c.interact(Interaction.feed);
+      await c.settled;
+    });
+    session.file.release.complete();
+    await tester.tap(find.text('시간 보내기 ›'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.runAsync(() => tester.tap(find.text('다음 날 아침 9시')));
+    await tester.pump();
+    for (var i = 0; i < 100 && session.mode.offset == Duration.zero; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.runAsync(() async {
+      await c.settled;
+      expect(c.now(), DateTime(first.year, first.month, first.day + 1, 9));
+      c.interact(Interaction.pet);
+      await c.settled;
+      expect(c.bubble, contains('밥 주던 손'));
+      c.interact(Interaction.pet);
+      await c.settled;
+      expect(await db.eventsOfKind('first_recognition'), hasLength(1));
+      expect(await db.allDiaries(), hasLength(1));
+    });
+  });
 
   testWidgets('시간 저장 중 두 번째 시간 보내기는 첫 시계를 덮어쓰지 않는다', (tester) async {
     final session = await mount(tester);

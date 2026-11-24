@@ -321,27 +321,19 @@ void main() {
     }
   });
 
-  testWidgets('시간 보내기: 버튼 열두 개가 폰 폭에 들어간다', (tester) async {
+  testWidgets('시간 보내기: 다음 아침과 기존 시각 선택이 폰 폭에 들어간다', (tester) async {
     await _pumpAndShot(
       tester,
       Scaffold(
-        body: Builder(
-          builder: (context) => Column(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Navigator(
-                onGenerateRoute: (_) => MaterialPageRoute<void>(
-                  builder: (context) =>
-                      TimeSheet(now: DateTime(2026, 10, 5, 16, 20)),
-                ),
-              ),
-            ],
-          ),
+        body: Align(
+          alignment: Alignment.bottomCenter,
+          child: TimeSheet(clock: () => DateTime(2026, 10, 5, 16, 20)),
         ),
       ),
       'screen_time_sheet',
     );
-    expect(find.byType(ActionChip), findsNWidgets(12));
+    expect(find.byType(ActionChip), findsNWidgets(13));
+    expect(find.text('다음 날 아침 9시').hitTestable(), findsOneWidget);
     expect(find.textContaining(keepWords('16:20')), findsOneWidget);
   });
 

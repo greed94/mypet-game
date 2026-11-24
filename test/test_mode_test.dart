@@ -25,6 +25,17 @@ void main() {
     expect(untilHour(DateTime(2026, 10, 5, 19), 19), const Duration(days: 1));
   });
 
+  test('다음 펫 아침은 05시를 기준으로 같은 날짜 또는 다음 날짜 09시다', () {
+    for (final (now, target) in [
+      (DateTime(2026, 12, 31, 4, 59, 59), DateTime(2026, 12, 31, 9)),
+      (DateTime(2026, 12, 31, 5), DateTime(2027, 1, 1, 9)),
+      (DateTime(2026, 12, 31, 6, 30), DateTime(2027, 1, 1, 9)),
+      (DateTime(2026, 12, 31, 23), DateTime(2027, 1, 1, 9)),
+    ]) {
+      expect(now.add(untilNextPetMorning(now)), target);
+    }
+  });
+
   test('앞선 정도 글자', () {
     expect(aheadLabel(Duration.zero), '실제 시각');
     expect(aheadLabel(const Duration(minutes: 40)), '+40분');

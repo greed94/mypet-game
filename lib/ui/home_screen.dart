@@ -772,7 +772,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _snack('산책이나 카페·가게·병원에서 집에 온 뒤에 시간을 보내요.');
       return;
     }
-    final d = await showTimeSheet(context, c.now());
+    final d = await showTimeSheet(context, c.now);
     if (d == null || !mounted) return;
     await widget.onJump?.call(d);
     if (mounted) setState(() {});

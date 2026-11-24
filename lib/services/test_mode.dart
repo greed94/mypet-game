@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../data/database.dart';
 import '../pet/pet_controller.dart';
+import '../pet/pet_rules.dart';
 
 /// 테스트 빌드 전용 연습 모드. 켜면 지금 펫을 복사한 연습 펫(mypet_test DB)으로 바꾸고,
 /// 그 펫의 시계만 앞으로 보낼 수 있다. 진짜 펫의 기록과 시계는 그대로 둔다.
@@ -90,6 +91,12 @@ Duration untilHour(DateTime now, int hour) {
   var t = DateTime(now.year, now.month, now.day, hour);
   if (!t.isAfter(now)) t = t.add(const Duration(days: 1));
   return t.difference(now);
+}
+
+/// 새벽 5시부터 시작하는 다음 펫 생활일의 아침 9시까지.
+Duration untilNextPetMorning(DateTime now) {
+  final day = petDate(now);
+  return DateTime(day.year, day.month, day.day + 1, 9).difference(now);
 }
 
 /// 띠에 보일 앞선 정도. "+2일 3시간"처럼.

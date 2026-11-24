@@ -8,7 +8,7 @@ permissions:
 jobs:
   care:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       TZ: Asia/Seoul
       FLUTTER_SUPPRESS_ANALYTICS: 'true'
@@ -21,10 +21,12 @@ jobs:
           sparse-checkout: |
             /pubspec.yaml
             /pubspec.lock
+            /analysis_options.yaml
             /lib/
             /assets/
             /test/
             /tools/persona_sim/
+            /tools/scene_preview/
 
       - name: Set up the project's Flutter SDK
         run: |
@@ -35,11 +37,21 @@ jobs:
       - name: Resolve locked dependencies
         run: flutter pub get --enforce-lockfile
 
-      - name: Check learned sleep times, first care and reunion after restart
+      - name: Check formatting and static analysis
+        run: |
+          dart format --output=none --set-exit-if-changed lib test tools
+          flutter analyze --no-pub
+
+      - name: Check the practice clock and first reunion
         run: >
           flutter test --no-pub --reporter expanded --concurrency=1
-          test/rhythm_test.dart test/rhythm_controller_test.dart
-          test/first_day_recognition_test.dart tools/persona_sim/persona_sim_test.dart
+          test/test_mode_test.dart test/test_mode_flow_test.dart test/first_day_recognition_test.dart
+
+      - name: Replay two weeks across household routines and pet temperaments
+        run: flutter test --no-pub --reporter expanded tools/persona_sim/persona_sim_test.dart
 
       - name: Publish synthetic play observations in the run summary
         run: cat build/persona_sim/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run all app tests
+        run: flutter test --no-pub --reporter expanded --concurrency=2

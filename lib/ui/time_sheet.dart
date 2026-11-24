@@ -9,19 +9,21 @@ Future<Duration?> showTimeSheet(
   BuildContext context,
   DateTime Function() clock,
 ) {
+  final openedAt = clock();
   return showModalBottomSheet<Duration>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: C3Colors.card,
     showDragHandle: true,
-    builder: (context) => TimeSheet(clock: clock),
+    builder: (context) => TimeSheet(openedAt: openedAt, clock: clock),
   );
 }
 
 class TimeSheet extends StatelessWidget {
-  const TimeSheet({super.key, required this.clock});
+  const TimeSheet({super.key, required this.openedAt, required this.clock});
 
+  final DateTime openedAt;
   final DateTime Function() clock;
 
   static const _spans = [
@@ -45,7 +47,7 @@ class TimeSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final now = clock();
+    final now = openedAt;
     Widget chip(String label, Duration Function() duration) => ActionChip(
       label: Text(label),
       onPressed: () => Navigator.of(context).pop(duration()),

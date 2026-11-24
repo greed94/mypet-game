@@ -327,7 +327,10 @@ void main() {
       Scaffold(
         body: Align(
           alignment: Alignment.bottomCenter,
-          child: TimeSheet(clock: () => DateTime(2026, 10, 5, 16, 20)),
+          child: TimeSheet(
+            openedAt: DateTime(2026, 10, 5, 16, 20),
+            clock: () => DateTime(2026, 10, 5, 16, 20),
+          ),
         ),
       ),
       'screen_time_sheet',

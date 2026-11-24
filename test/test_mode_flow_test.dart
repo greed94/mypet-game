@@ -103,7 +103,7 @@ void main() {
   Future<_Session> mount(
     WidgetTester tester, {
     Duration savedOffset = Duration.zero,
-    DateTime? openedAt,
+    DateTime? firstMeetingAt,
     bool failPreviousClose = false,
   }) async {
     final dir = Directory.systemTemp.createTempSync('mypet_time_flow_');
@@ -118,7 +118,7 @@ void main() {
     tester.view.physicalSize = const Size(1080, 2637);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
-    final base = openedAt ?? DateTime(2026, 10, 20, 10);
+    final base = firstMeetingAt ?? DateTime(2026, 10, 20, 10);
     final prepared = (await tester.runAsync(() async {
       final real = AppDatabase(NativeDatabase.memory());
       await real.createPet(
@@ -142,6 +142,10 @@ void main() {
         marking: 3,
         now: base,
       );
+      if (firstMeetingAt != null) {
+        await db.queueFirstMeeting(base);
+        expect(await db.beginFirstMeeting(base), isTrue);
+      }
       final file = _DelayedModeFile(File('${dir.path}/test_mode.json'));
       await file.file.writeAsString(
         jsonEncode({'on': true, 'offsetMinutes': savedOffset.inMinutes}),
@@ -159,6 +163,7 @@ void main() {
         MypetApp(
           db: db,
           initialPet: pet,
+          initialFirstMeeting: firstMeetingAt != null,
           systemPrompt: '',
           diaryPrompt: '',
           ai: null,
@@ -253,18 +258,16 @@ void main() {
   testWidgets('첫 끼를 준 연습 펫과 다음 날 아침에 만나고 같은 기억은 한 번만 남긴다', (tester) async {
     final session = await mount(
       tester,
-      openedAt: DateTime(2026, 10, 20, 10, 0, 10, 250),
+      firstMeetingAt: DateTime(2026, 10, 20, 10, 0, 10, 250),
     );
     final c = session.home.controller;
     final db = session.home.db;
     final first = c.now();
-    await tester.runAsync(() async {
-      await db.queueFirstMeeting(first);
-      await db.beginFirstMeeting(first);
-    });
+    c.brain = null;
     await tester.runAsync(() => tester.tap(find.text('밥 주기').hitTestable()));
     await tester.pump();
     await tester.runAsync(() => c.settled);
+    expect(await tester.runAsync(() => db.eventsOfKind('feed')), hasLength(1));
     session.file.release.complete();
     await tester.runAsync(() => tester.tap(find.text('시간 보내기 ›')));
     await tester.pump();
@@ -280,23 +283,33 @@ void main() {
       expect(reopened.offset, session.mode.offset);
     });
     await tester.pump(const Duration(milliseconds: 400));
-    final room = find.byType(GameWidget<PetGame>);
-    final game = tester.widget<GameWidget<PetGame>>(room).game!;
-    final dog =
-        tester.getTopLeft(room) +
-        Offset(game.floorX(c.petX), game.petBaseline - 12 * game.pixelScale);
-    await tester.runAsync(() => tester.tapAt(dog));
+    Future<void> petFromRoom() async {
+      final label = c.bubble == null ? '콩이 쓰다듬기' : '콩이의 속마음';
+      await tester.runAsync(
+        () async => tester.semantics.tap(find.semantics.byLabel(label)),
+      );
+      await tester.pump();
+      await tester.runAsync(() => c.settled);
+      await tester.pump();
+    }
+
+    await petFromRoom();
     await tester.runAsync(() => c.settled);
     await tester.pump();
     final thought = tester.getSemantics(find.bySemanticsLabel('콩이의 속마음'));
     expect(thought.getSemanticsData().value, contains('밥 주던 손'));
-    await tester.runAsync(() => tester.tapAt(dog));
+    await petFromRoom();
     await tester.runAsync(() => c.settled);
     await tester.runAsync(() => tester.tap(find.text('일기').hitTestable()));
     await tester.pump();
     await tester.runAsync(() => pumpEventQueue());
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text('그날의 발자국').hitTestable());
+    await tester.runAsync(() => tester.tap(find.text('그날의 발자국').hitTestable()));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await db.customSelect('SELECT 1').get();
+      await pumpEventQueue();
+    });
     await tester.pump();
     expect(find.text('밥 먹기'), findsOneWidget);
     expect(

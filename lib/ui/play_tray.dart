@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../pet/tricks.dart';
+import '../services/telemetry.dart';
 import 'c3/c3_theme.dart';
 import 'c3/sticker_card.dart';
 
@@ -17,6 +18,7 @@ class PlayTray extends StatelessWidget {
     this.compact = false,
     this.treats = 0,
     this.onTreat,
+    this.onPointer,
   });
 
   final Map<Trick, TrickProgress> tricks;
@@ -34,6 +36,18 @@ class PlayTray extends StatelessWidget {
   /// 주머니 간식 수. 개인기를 해낸 직후 주면 칭찬이 된다(놀이 칸이 밥·간식 줄을 가려서 여기에도 둔다).
   final int treats;
   final VoidCallback? onTreat;
+  final void Function(PlayAction, Trick?, PointerEvent)? onPointer;
+
+  Widget _input(PlayAction action, Widget child, {Trick? trick}) {
+    final send = onPointer;
+    if (send == null) return child;
+    return Listener(
+      onPointerDown: (e) => send(action, trick, e),
+      onPointerCancel: (e) => send(action, trick, e),
+      onPointerUp: (e) => send(action, trick, e),
+      child: child,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,36 +56,49 @@ class PlayTray extends StatelessWidget {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         if (onThrow != null)
-          TextButton.icon(
-            onPressed: onThrow,
-            icon: const Icon(Icons.sports_baseball_outlined, size: 18),
-            label: const Text('공 던지기'),
+          _input(
+            PlayAction.throwBall,
+            TextButton.icon(
+              onPressed: onThrow,
+              icon: const Icon(Icons.sports_baseball_outlined, size: 18),
+              label: const Text('공 던지기'),
+            ),
           ),
         for (final t in Trick.values)
           if (t.chip && !hide.contains(t))
-            _TrickChip(
+            _input(
+              PlayAction.trick,
+              _TrickChip(
+                trick: t,
+                progress: tricks[t],
+                onTap: () => onTrick(t),
+                onLongPress: onNotebook,
+              ),
               trick: t,
-              progress: tricks[t],
-              onTap: () => onTrick(t),
-              onLongPress: onNotebook,
             ),
         if (treats > 0 && onTreat != null)
-          TextButton(
-            onPressed: onTreat,
-            style: TextButton.styleFrom(
-              minimumSize: const Size(48, 40),
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+          _input(
+            PlayAction.treat,
+            TextButton(
+              onPressed: onTreat,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(48, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              child: Text('간식 $treats'),
             ),
-            child: Text('간식 $treats'),
           ),
         if (onNotebook != null)
-          TextButton(
-            onPressed: onNotebook,
-            style: TextButton.styleFrom(
-              minimumSize: const Size(48, 40),
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+          _input(
+            PlayAction.notebook,
+            TextButton(
+              onPressed: onNotebook,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(48, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              child: const Text('훈련 수첩'),
             ),
-            child: const Text('훈련 수첩'),
           ),
       ],
     );
@@ -92,13 +119,16 @@ class PlayTray extends StatelessWidget {
                   : actions,
             ),
             const SizedBox(width: 8),
-            TextButton(
-              onPressed: onClose,
-              style: TextButton.styleFrom(
-                minimumSize: const Size(56, 48),
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+            _input(
+              PlayAction.close,
+              TextButton(
+                onPressed: onClose,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(56, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                child: const Text('그만 놀기'),
               ),
-              child: const Text('그만 놀기'),
             ),
           ],
         ),

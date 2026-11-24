@@ -25,6 +25,7 @@ import 'package:mypet/pet/treasure.dart';
 import 'package:mypet/services/sfx.dart';
 import 'package:mypet/services/notifications.dart';
 import 'package:mypet/services/test_mode.dart';
+import 'package:mypet/services/telemetry.dart';
 import 'package:mypet/ui/c3/c3_theme.dart';
 import 'package:mypet/ui/c3/memo_input.dart';
 import 'package:mypet/ui/c3/sticker_button.dart';
@@ -321,6 +322,75 @@ void main() {
       },
     );
   }
+
+  testWidgets('S22 놀이 순서의 각 물어와 입력에 판정·별·화면을 연결하고 종료한다', (tester) async {
+    final home = await make(tester);
+    final logs = <String>[];
+    await Telemetry.capturePlayTrace(logs.add, () async {
+      await mount(tester, home);
+      await tester.tap(find.text('놀아주기'));
+      await tester.pump();
+      for (final label in ['앉아', '점프', ...List.filled(9, '물어와')]) {
+        await tester.tap(find.text(label).hitTestable());
+        await tester.pump();
+      }
+      expect(home.c.tricks[Trick.fetch]!.stars, 1);
+      expect(find.bySemanticsLabel('물어와, 별 1개'), findsOneWidget);
+      await tester.tap(find.text('그만 놀기'));
+      await tester.pump();
+      expect(find.text('밥 주기').hitTestable(), findsOneWidget);
+    });
+    final fetch = logs.where((s) => s.contains('trick=fetch')).toList();
+    final taps = fetch.where((s) => s.contains('phase=tap')).toList();
+    expect(taps, hasLength(9));
+    for (final tap in taps) {
+      final input = RegExp(r'input=\d+').firstMatch(tap)![0]!;
+      final linked = fetch.where((s) => s.split(' ').contains(input)).toList();
+      for (final phase in ['pointer', 'tap', 'result', 'frame']) {
+        expect(linked.where((s) => s.contains('phase=$phase')), hasLength(1));
+      }
+    }
+    expect(
+      fetch.any((s) => s.contains('phase=frame') && s.contains('stars=1')),
+      isTrue,
+    );
+    expect(
+      logs.any(
+        (s) =>
+            s.contains('action=close phase=frame') &&
+            s.contains('menu_open=false'),
+      ),
+      isTrue,
+    );
+  });
+
+  testWidgets('취소한 손가락 입력과 화면 읽기로 누른 물어와를 별개로 기록한다', (tester) async {
+    final home = await make(tester);
+    final logs = <String>[];
+    await Telemetry.capturePlayTrace(logs.add, () async {
+      await mount(tester, home);
+      await tester.tap(find.text('놀아주기'));
+      await tester.pump();
+      final target = find.text('물어와').hitTestable();
+      final finger = await tester.startGesture(tester.getCenter(target));
+      await finger.cancel();
+      await tester.pump();
+      tester.semantics.tap(find.semantics.byLabel('물어와'));
+      await tester.pump();
+    });
+    final fetch = logs.where((s) => s.contains('trick=fetch')).toList();
+    expect(fetch.map((s) => RegExp(r'phase=(\w+)').firstMatch(s)![1]), [
+      'pointer',
+      'cancel',
+      'tap',
+      'result',
+      'frame',
+    ]);
+    String? input(String s) => RegExp(r'input=(\d+)').firstMatch(s)?[1];
+    expect(input(fetch[0]), input(fetch[1]));
+    expect(input(fetch[1]), isNot(input(fetch[2])));
+    expect(input(fetch[2]), input(fetch[4]));
+  });
 
   testWidgets('화면에 남은 놀이판은 내부 공이 이미 치워졌어도 닫힌다', (tester) async {
     final home = await make(tester);

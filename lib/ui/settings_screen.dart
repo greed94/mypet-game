@@ -584,7 +584,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: const Text('사용 기록 보내기'),
                 subtitle: Text(
                   keepWords(
-                    '테스트 빌드 전용. 누른 버튼, 화면 이동, 펫 상태, 오류가 개발자에게 전송돼요(Firebase). 말 건 내용과 일기 본문은 보내지 않아요.',
+                    '테스트 빌드에서는 버튼, 화면 이동, 펫 상태와 오류를 Firebase로 보내요. 최근 놀이 입력과 결과는 이 기기에도 저장하며, 끄면 앱에 보관한 진단 파일을 지워요. 이 사용 기록에는 대화와 일기 본문이 포함되지 않아요.',
                   ),
                 ),
                 value: !_telemetryOff,

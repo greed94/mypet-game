@@ -98,6 +98,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final _input = TextEditingController();
   late final _speech = widget.speech ?? SpeechToText();
   final _steps = StepCounter();
+  final _playTrayKey = GlobalKey();
+  final _playPresses = <(PlayAction, Trick?), ({int pointer, int input})>{};
   Timer? _walkClock;
   int _walkSession = 0;
   bool _confirmingWalk = false;
@@ -1019,14 +1021,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ? _walkPanel(c)
               : c.out
               ? (_cafeTray && c.atCafe
-                    ? PlayTray(
-                        compact: !showActions,
-                        tricks: c.tricks,
-                        hide: const {Trick.fetch},
-                        onTrick: c.command,
-                        onNotebook: () => showTrickNotebook(context, c),
-                        onClose: () => _closePlayTray(c),
-                      )
+                    ? _playTray(c, compact: !showActions, atCafe: true)
                     : _placePanel(c))
               : c.replaying
               ? _replayPanel(c)
@@ -1199,17 +1194,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _actions(PetController c, {bool compact = false}) {
     if (c.ball != Ball.none) {
-      return PlayTray(
-        compact: compact,
-        onThrow: c.ball == Ball.ready ? _game.tossBall : null,
-        tricks: c.tricks,
-        onTrick: c.command,
-        onNotebook: () => showTrickNotebook(context, c),
-        onClose: () => _closePlayTray(c),
-        // 공을 물고 오는 중엔 간식을 못 준다.
-        treats: c.ball == Ball.carried ? 0 : c.pouch.length,
-        onTreat: c.giveTreat,
-      );
+      return _playTray(c, compact: compact, atCafe: false);
     }
     // 간식이 있으면 네 번째 스티커. 방 위에 두면 문 앞 펫을 가려 쓰다듬으려다 간식이 나갔다.
     final treats = c.pouch.length;
@@ -1231,7 +1216,7 @@ class _HomeScreenState extends State<HomeScreen> {
         label: '놀아주기',
         tilt: 2,
         width: width,
-        onTap: c.takeOutBall,
+        onTap: () => _playInput(c, PlayAction.open, apply: c.takeOutBall),
       ),
       StickerButton(
         compact: compact,
@@ -1263,18 +1248,126 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _closePlayTray(PetController c) {
-    final atCafe = c.atCafe;
-    try {
-      if (!atCafe) c.putBallAway();
-    } finally {
-      // 공이 이미 치워졌거나 다음 행동 선택에서 실패해도 현재 상태로 다시 그린다.
-      setState(() => _cafeTray = false);
-    }
-    Telemetry.logPlayMenuClose(
-      atCafe: atCafe,
-      open: atCafe ? _cafeTray : c.ball != Ball.none,
+  Widget _playTray(
+    PetController c, {
+    required bool compact,
+    required bool atCafe,
+  }) {
+    final tracing = Telemetry.playTraceEnabled;
+    return PlayTray(
+      key: _playTrayKey,
+      compact: compact,
+      hide: atCafe ? const {Trick.fetch} : const {},
+      // 진단 프레임에서는 이 위젯이 받은 수치와 이후의 컨트롤러 수치를 구분한다.
+      tricks: tracing ? Map.unmodifiable(c.tricks) : c.tricks,
+      onPointer: tracing ? _playPointer : null,
+      onTrick: (trick) => _playInput(c, PlayAction.trick, trick: trick),
+      onNotebook: () => _playInput(
+        c,
+        PlayAction.notebook,
+        apply: () => showTrickNotebook(context, c),
+      ),
+      onThrow: !atCafe && c.ball == Ball.ready
+          ? () => _playInput(c, PlayAction.throwBall, apply: _game.tossBall)
+          : null,
+      treats: atCafe || c.ball == Ball.carried ? 0 : c.pouch.length,
+      onTreat: () => _playInput(c, PlayAction.treat, apply: c.giveTreat),
+      onClose: () => _playInput(
+        c,
+        PlayAction.close,
+        apply: () {
+          try {
+            if (!atCafe) c.putBallAway();
+          } finally {
+            // 공이 이미 치워졌거나 다음 행동 선택에서 실패해도 현재 상태로 다시 그린다.
+            setState(() => _cafeTray = false);
+          }
+        },
+      ),
     );
+  }
+
+  void _playPointer(PlayAction action, Trick? trick, PointerEvent e) {
+    final key = (action, trick);
+    if (e is PointerDownEvent) {
+      if (_playPresses.containsKey(key)) return;
+      final id = Telemetry.playTrace(
+        action,
+        PlayPhase.pointer,
+        trick: trick,
+        ball: widget.controller.ball,
+        atCafe: widget.controller.atCafe,
+      );
+      _playPresses[key] = (pointer: e.pointer, input: id);
+      return;
+    }
+    // onTap은 포인터 처리 끝에서 확정된다. 스크롤·길게 누르기로 소비된 터치만 취소로 남긴다.
+    scheduleMicrotask(() {
+      final press = _playPresses[key];
+      if (press == null || press.pointer != e.pointer) return;
+      _playPresses.remove(key);
+      Telemetry.playTrace(
+        action,
+        PlayPhase.cancel,
+        trick: trick,
+        input: press.input,
+      );
+    });
+  }
+
+  void _playInput(
+    PetController c,
+    PlayAction action, {
+    Trick? trick,
+    VoidCallback? apply,
+  }) {
+    final tracing = Telemetry.playTraceEnabled;
+    final press = _playPresses.remove((action, trick));
+    int log(PlayPhase phase, {int? id, Enum? outcome, bool frame = false}) {
+      final tray = _playTrayKey.currentWidget as PlayTray?;
+      final progress = trick == null || (frame && tray == null)
+          ? null
+          : (frame ? tray!.tricks[trick] : c.tricks[trick]) ??
+                const TrickProgress();
+      return Telemetry.playTrace(
+        action,
+        phase,
+        input: id,
+        trick: trick,
+        outcome: outcome,
+        ball: c.ball,
+        atCafe: c.atCafe,
+        menuOpen: frame
+            ? tray != null
+            : (c.atCafe ? _cafeTray : c.ball != Ball.none),
+        attempts: progress?.attempts,
+        successes: progress?.successes,
+        stars: progress?.stars,
+      );
+    }
+
+    final input = tracing ? log(PlayPhase.tap, id: press?.input) : null;
+    Enum? outcome;
+    try {
+      if (trick != null) {
+        outcome = c.command(trick);
+      } else {
+        apply!();
+      }
+      if (tracing) log(PlayPhase.result, id: input, outcome: outcome);
+    } catch (_) {
+      if (tracing) log(PlayPhase.error, id: input);
+      rethrow;
+    } finally {
+      if (tracing) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && identical(widget.controller, c)) {
+            log(PlayPhase.frame, id: input, frame: true);
+          }
+        });
+        WidgetsBinding.instance.ensureVisualUpdate();
+      }
+    }
   }
 
   Widget _walkPanel(PetController c) {
@@ -1497,7 +1590,11 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           OutlinedButton(
             style: compactButton,
-            onPressed: () => setState(() => _cafeTray = true),
+            onPressed: () => _playInput(
+              c,
+              PlayAction.open,
+              apply: () => setState(() => _cafeTray = true),
+            ),
             child: const Text('개인기'),
           ),
           home,

@@ -347,31 +347,53 @@ void main() {
     );
   });
 
+  Future<void> Function() photoAction(WidgetTester tester) =>
+      tester
+              .widget<FilledButton>(
+                find.ancestor(
+                  of: find.text('사진으로 만들기'),
+                  matching: find.byWidgetPredicate(
+                    (widget) => widget is FilledButton,
+                  ),
+                ),
+              )
+              .onPressed!
+          as Future<void> Function();
+
+  Future<void> pick(
+    WidgetTester tester, {
+    Future<void> Function()? whilePending,
+  }) async {
+    final action = photoAction(tester);
+    if (whilePending == null) {
+      await tester.runAsync(action);
+    } else {
+      late Future<void> finished;
+      await tester.runAsync(() async {
+        finished = action();
+      });
+      await tester.pump();
+      await whilePending();
+      await tester.runAsync(() => finished);
+    }
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  }
+
   testWidgets('사진 응답이 이름 화면에 늦게 도착해도 선택한 털색을 유지한다', (tester) async {
     await mount(tester);
     await tester.tap(find.widgetWithText(ChoiceChip, '갈색'));
     await tester.pump();
     final picked = (await tester.runAsync(() async => Completer<String?>()))!;
     messenger.setMockMethodCallHandler(picker, (_) => picked.future);
-    final choosePhoto = tester
-        .widget<FilledButton>(
-          find.ancestor(
-            of: find.text('사진으로 만들기'),
-            matching: find.byWidgetPredicate((w) => w is FilledButton),
-          ),
-        )
-        .onPressed!;
-    await tester.runAsync(() async {
-      choosePhoto();
-      await pumpEventQueue();
-    });
-    await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
-    await tester.pumpAndSettle();
-    await tester.runAsync(() async {
-      picked.complete(photo.path);
-      await pumpEventQueue();
-    });
-    await drain(tester);
+    await pick(
+      tester,
+      whilePending: () async {
+        await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
+        await tester.pumpAndSettle();
+        picked.complete(photo.path);
+      },
+    );
     final dog = tester.widget<PetSpritePreview>(
       find.descendant(
         of: find.byType(Polaroid),
@@ -381,24 +403,6 @@ void main() {
     expect(dog.colors.main, furPresets[1].$2);
     expect(find.text('이름을 지어 주세요'), findsOneWidget);
   });
-
-  Future<void> pick(WidgetTester tester, List<Object> errors) async {
-    final action = tester
-        .widget<FilledButton>(
-          find.ancestor(
-            of: find.text('사진으로 만들기'),
-            matching: find.byWidgetPredicate(
-              (widget) => widget is FilledButton,
-            ),
-          ),
-        )
-        .onPressed!;
-    await tester.runAsync(() async {
-      runZonedGuarded(action, (error, stack) => errors.add(error));
-      await pumpEventQueue();
-    });
-    await tester.pump();
-  }
 
   http.Response places(String name) => http.Response(
     jsonEncode({
@@ -420,15 +424,13 @@ void main() {
     await mount(tester);
     final picked = (await tester.runAsync(() async => Completer<String?>()))!;
     messenger.setMockMethodCallHandler(picker, (_) => picked.future);
-    final errors = <Object>[];
-    await pick(tester, errors);
-    await tester.pumpWidget(const SizedBox());
-    await tester.runAsync(() async {
-      picked.complete(photo.path);
-      await pumpEventQueue();
-    });
-    await drain(tester);
-    expect(errors, isEmpty);
+    await pick(
+      tester,
+      whilePending: () async {
+        await tester.pumpWidget(const SizedBox());
+        picked.complete(photo.path);
+      },
+    );
     expect((await tester.runAsync(() => db.loadPet())), isNull);
     expect(tester.takeException(), isNull);
   });
@@ -437,16 +439,14 @@ void main() {
     await mount(tester);
     final picked = (await tester.runAsync(() async => Completer<String?>()))!;
     messenger.setMockMethodCallHandler(picker, (_) => picked.future);
-    final errors = <Object>[];
-    await pick(tester, errors);
-    await tester.tap(find.widgetWithText(ChoiceChip, '흰색'));
-    await tester.pump();
-    await tester.runAsync(() async {
-      picked.complete(photo.path);
-      await pumpEventQueue();
-    });
-    await drain(tester);
-    expect(errors, isEmpty);
+    await pick(
+      tester,
+      whilePending: () async {
+        await tester.tap(find.widgetWithText(ChoiceChip, '흰색'));
+        await tester.pump();
+        picked.complete(photo.path);
+      },
+    );
     expect(
       tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '흰색')).selected,
       isTrue,
@@ -469,18 +469,13 @@ void main() {
       if (attempt == 2) return '${folder.path}/missing.png';
       return photo.path;
     });
-    final errors = <Object>[];
-    await pick(tester, errors);
-    await drain(tester);
+    await pick(tester);
     expect(find.text('사진을 열지 못했어요. 다시 골라 볼까요?'), findsOneWidget);
     expect(find.text('사진으로 만들기'), findsOneWidget);
-    await pick(tester, errors);
-    await drain(tester);
+    await pick(tester);
     expect(find.text('사진을 읽지 못했어요. 다른 사진으로 해볼까요?'), findsOneWidget);
     expect(find.text('사진으로 만들기'), findsOneWidget);
-    await pick(tester, errors);
-    await drain(tester);
-    expect(errors, isEmpty);
+    await pick(tester);
     expect(attempt, 3);
     expect(
       find.byWidgetPredicate(
@@ -496,19 +491,14 @@ void main() {
     await mount(tester);
     await tester.tap(find.widgetWithText(ChoiceChip, '갈색'));
     messenger.setMockMethodCallHandler(picker, (_) async => null);
-    final errors = <Object>[];
-    await pick(tester, errors);
-    await drain(tester);
-    expect(errors, isEmpty);
+    await pick(tester);
     expect(
       tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '갈색')).selected,
       isTrue,
     );
     expect(find.text('사진으로 만들기'), findsOneWidget);
     messenger.setMockMethodCallHandler(picker, (_) async => photo.path);
-    await pick(tester, errors);
-    await drain(tester);
-    expect(errors, isEmpty);
+    await pick(tester);
     expect(
       find.byWidgetPredicate(
         (widget) => widget is Image && widget.image is MemoryImage,
@@ -525,33 +515,19 @@ void main() {
       requests++;
       return picked.future;
     });
-    final action = tester
-        .widget<FilledButton>(
-          find.ancestor(
-            of: find.text('사진으로 만들기'),
-            matching: find.byWidgetPredicate(
-              (widget) => widget is FilledButton,
-            ),
-          ),
-        )
-        .onPressed!;
-    final errors = <Object>[];
+    final action = photoAction(tester);
+    late Future<List<void>> requestsFinished;
     await tester.runAsync(() async {
-      runZonedGuarded(() {
-        action();
-        action();
-      }, (error, stack) => errors.add(error));
+      requestsFinished = Future.wait([action(), action()]);
       await pumpEventQueue();
     });
     await tester.pump();
-    final countWhileWaiting = requests;
-    await tester.runAsync(() async {
-      picked.complete(null);
-      await pumpEventQueue();
-    });
-    await drain(tester);
-    expect(countWhileWaiting, 1);
-    expect(errors, isEmpty);
+    expect(requests, 1);
+    picked.complete(null);
+    await tester.runAsync(() => requestsFinished);
+    await tester.pump();
+    expect(requests, 1);
+    expect(tester.takeException(), isNull);
     expect(find.text('사진으로 만들기'), findsOneWidget);
   });
 

@@ -29,7 +29,7 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   late AppDatabase db;
   late Directory folder;
-  final errors = <Object>[];
+  late Future<void> pendingCreate;
   final delivered = <Pet>[];
   final calls = <String>[];
   Future<Object?> Function(MethodCall)? notificationReply;
@@ -39,7 +39,6 @@ void main() {
   setUp(() {
     ShapePicker.resetCache();
     AndroidFlutterLocalNotificationsPlugin.registerWith();
-    errors.clear();
     delivered.clear();
     calls.clear();
     notificationReply = null;
@@ -59,23 +58,6 @@ void main() {
     });
   });
 
-  Future<void> drain(WidgetTester tester) async {
-    for (var i = 0; i < 12; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 5)),
-      );
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-  }
-
-  Future<void> invoke(WidgetTester tester, VoidCallback action) async {
-    await tester.runAsync(() async {
-      runZonedGuarded(action, (error, stack) => errors.add(error));
-      await pumpEventQueue();
-    });
-    await drain(tester);
-  }
-
   Future<void> mount(
     WidgetTester tester, {
     bool photo = false,
@@ -93,7 +75,6 @@ void main() {
     calls.clear();
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox());
-      await drain(tester);
       await tester.runAsync(() async {
         await db.close();
         for (final file in folder.listSync().whereType<File>()) {
@@ -121,7 +102,6 @@ void main() {
         ),
       ),
     );
-    await drain(tester);
     if (photo) {
       final file = await tester.runAsync(() async {
         final image = img.Image(width: 8, height: 8);
@@ -136,7 +116,14 @@ void main() {
           matching: find.byWidgetPredicate((widget) => widget is FilledButton),
         ),
       );
-      await invoke(tester, button.onPressed!);
+      await tester.runAsync(button.onPressed! as Future<void> Function());
+      await tester.pump();
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '다음'))
+            .onPressed,
+        isNotNull,
+      );
     } else {
       await tester.tap(find.widgetWithText(ChoiceChip, '갈색'));
       await tester.pump();
@@ -153,25 +140,36 @@ void main() {
     }
   }
 
-  Future<VoidCallback> start(WidgetTester tester) async => tester
-      .widget<FilledButton>(find.widgetWithText(FilledButton, '건너뛰고 시작'))
-      .onPressed!;
+  Future<void> Function() start(WidgetTester tester) {
+    final button = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '건너뛰고 시작'),
+    );
+    return button.onPressed! as Future<void> Function();
+  }
 
   Future<int> count(WidgetTester tester) async =>
       (await tester.runAsync(() => db.select(db.pets).get()))!.length;
 
   Future<void> finishCreate(WidgetTester tester) async {
-    final create = (await start(tester)) as Future<void> Function();
-    // DB 롤백 뒤 finally에서 수행하는 실제 사진 파일 정리까지 기다린다.
-    await tester.runAsync(create);
+    await tester.runAsync(start(tester));
+    await tester.pump();
+  }
+
+  // 종료·중복 입력을 검사할 때는 해당 비동기 요청이 실제로 도착한 뒤 화면을 조작한다.
+  Future<void> startUntil(WidgetTester tester, Future<void> entered) async {
+    final create = start(tester);
+    await tester.runAsync(() async {
+      pendingCreate = create();
+      await entered.timeout(const Duration(seconds: 30));
+    });
     await tester.pump();
   }
 
   testWidgets('이전으로 돌아가는 첫 프레임의 시작 콜백은 펫을 저장하지 않는다', (tester) async {
     await mount(tester);
-    final previousStart = await start(tester);
+    final previousStart = start(tester);
     await tester.binding.handlePopRoute();
-    await invoke(tester, previousStart);
+    await tester.runAsync(previousStart);
     await tester.pumpAndSettle();
     expect(await count(tester), 0);
     expect(delivered, isEmpty);
@@ -180,24 +178,26 @@ void main() {
 
   testWidgets('생성 콜백을 연속 호출해도 펫과 권한 요청은 하나다', (tester) async {
     await mount(tester, reminders: true);
-    final permission = (await tester.runAsync(() async => Completer<bool>()))!;
+    final permission = await _pendingReply<bool>(tester);
     notificationReply = (call) async =>
         call.method == 'requestNotificationsPermission'
-        ? permission.future
+        ? permission.wait()
         : true;
-    final action = await start(tester);
-    await invoke(tester, action);
-    await invoke(tester, action);
+    final action = start(tester);
+    await startUntil(tester, permission.entered.future);
+    await tester.runAsync(action);
     final countWhilePending = await count(tester);
     final requests = calls
         .where((call) => call == 'requestNotificationsPermission')
         .length;
-    await tester.runAsync(() async => permission.complete(false));
-    await drain(tester);
+    await tester.runAsync(() async {
+      permission.reply.complete(false);
+      await pendingCreate;
+    });
     expect(countWhilePending, 1);
     expect(requests, 1);
     expect(delivered, hasLength(1));
-    expect(errors, isEmpty);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('기본 선택으로 시작하면 알림 요청과 예약 없이 홈에 도착한다', (tester) async {
@@ -206,7 +206,7 @@ void main() {
       tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
       false,
     );
-    await invoke(tester, await start(tester));
+    await finishCreate(tester);
     expect(delivered, hasLength(1));
     expect(calls, isEmpty);
   });
@@ -219,15 +219,15 @@ void main() {
         "BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END",
       );
     });
-    await invoke(tester, await start(tester));
+    await finishCreate(tester);
     final retry = find.widgetWithText(FilledButton, '건너뛰고 시작');
-    expect(errors, isEmpty);
+    expect(tester.takeException(), isNull);
     expect(retry, findsOneWidget);
     expect(tester.widget<FilledButton>(retry).onPressed, isNotNull);
     expect(find.text('저장하지 못했어요. 다시 시작해 볼까요?'), findsOneWidget);
     expect(await count(tester), 0);
     await tester.runAsync(() => db.customStatement('DROP TRIGGER fail_create'));
-    await invoke(tester, await start(tester));
+    await finishCreate(tester);
     expect(await count(tester), 1);
     expect(delivered, hasLength(1));
   });
@@ -240,8 +240,8 @@ void main() {
       }
       return true;
     };
-    await invoke(tester, await start(tester));
-    expect(errors, isEmpty);
+    await finishCreate(tester);
+    expect(tester.takeException(), isNull);
     expect(await count(tester), 1);
     expect(delivered, hasLength(1));
     expect(calls, isNot(contains('zonedSchedule')));
@@ -255,8 +255,8 @@ void main() {
       }
       return true;
     };
-    await invoke(tester, await start(tester));
-    expect(errors, isEmpty);
+    await finishCreate(tester);
+    expect(tester.takeException(), isNull);
     expect(await count(tester), 1);
     expect(delivered, hasLength(1));
     expect(calls.where((call) => call == 'zonedSchedule'), hasLength(1));
@@ -265,10 +265,13 @@ void main() {
   testWidgets('알림 허용은 하루 두 예약 뒤 한 번만 홈으로 이어간다', (tester) async {
     await mount(tester, reminders: true);
     notificationReply = (_) async => true;
-    final action = await start(tester);
-    await invoke(tester, action);
-    await invoke(tester, action);
-    expect(errors, isEmpty);
+    final action = start(tester);
+    await tester.runAsync(() async {
+      await action();
+      await action();
+    });
+    await tester.pump();
+    expect(tester.takeException(), isNull);
     expect(await count(tester), 1);
     expect(delivered, hasLength(1));
     expect(calls.where((call) => call == 'zonedSchedule'), hasLength(2));
@@ -285,7 +288,7 @@ void main() {
         throw const FileSystemException('synthetic delivery');
       }
     };
-    await invoke(tester, await start(tester));
+    await finishCreate(tester);
     final pet = (await tester.runAsync(() => db.loadPet()))!;
     final portrait = File(pet.portraitPath!);
     final beforeBytes = portrait.readAsBytesSync();
@@ -297,8 +300,8 @@ void main() {
       tester.widget<TextField>(find.widgetWithText(TextField, '동네 이름')).enabled,
       isFalse,
     );
-    await invoke(tester, await start(tester));
-    expect(errors, isEmpty);
+    await finishCreate(tester);
+    expect(tester.takeException(), isNull);
     expect(ids, [pet.id, pet.id]);
     expect(await count(tester), 1);
     expect(delivered.single.id, pet.id);
@@ -319,11 +322,11 @@ void main() {
       if (++attempts == 1) throw PlatformException(code: 'synthetic-path');
       return folder.path;
     };
-    await invoke(tester, await start(tester));
-    expect(errors, isEmpty);
+    await finishCreate(tester);
+    expect(tester.takeException(), isNull);
     expect(await count(tester), 0);
     expect(find.text('저장하지 못했어요. 다시 시작해 볼까요?'), findsOneWidget);
-    await invoke(tester, await start(tester));
+    await finishCreate(tester);
     final pet = (await tester.runAsync(() => db.loadPet()))!;
     expect(delivered, hasLength(1));
     expect(old.readAsBytesSync(), [1, 2, 3]);
@@ -342,7 +345,7 @@ void main() {
       ),
     );
     await finishCreate(tester);
-    expect(errors, isEmpty);
+    expect(tester.takeException(), isNull);
     expect(await count(tester), 0);
     expect(folder.listSync().whereType<File>(), hasLength(2));
     expect(old.readAsBytesSync(), [1, 2, 3]);
@@ -356,15 +359,17 @@ void main() {
 
   testWidgets('사진 폴더 응답 전 종료하면 파일과 펫을 만들지 않는다', (tester) async {
     await mount(tester, photo: true);
-    final directory = (await tester.runAsync(() async => Completer<String>()))!;
-    pathReply = (_) => directory.future;
-    final action = await start(tester);
-    await invoke(tester, action);
+    final directory = await _pendingReply<String>(tester);
+    pathReply = (_) => directory.wait();
+    final action = start(tester);
+    await startUntil(tester, directory.entered.future);
     await tester.pumpWidget(const SizedBox());
-    await tester.runAsync(() async => directory.complete(folder.path));
-    await drain(tester);
-    await invoke(tester, action);
-    expect(errors, isEmpty);
+    await tester.runAsync(() async {
+      directory.reply.complete(folder.path);
+      await pendingCreate;
+      await action();
+    });
+    expect(tester.takeException(), isNull);
     expect(await count(tester), 0);
     expect(delivered, isEmpty);
     expect(folder.listSync().whereType<File>(), hasLength(1));
@@ -373,17 +378,19 @@ void main() {
 
   testWidgets('알림 권한 응답 전 종료하면 저장한 펫만 유지하고 콜백을 무시한다', (tester) async {
     await mount(tester, reminders: true);
-    final permission = (await tester.runAsync(() async => Completer<bool>()))!;
+    final permission = await _pendingReply<bool>(tester);
     notificationReply = (call) async =>
         call.method == 'requestNotificationsPermission'
-        ? permission.future
+        ? permission.wait()
         : true;
-    await invoke(tester, await start(tester));
+    await startUntil(tester, permission.entered.future);
     expect(await count(tester), 1);
     await tester.pumpWidget(const SizedBox());
-    await tester.runAsync(() async => permission.complete(true));
-    await drain(tester);
-    expect(errors, isEmpty);
+    await tester.runAsync(() async {
+      permission.reply.complete(true);
+      await pendingCreate;
+    });
+    expect(tester.takeException(), isNull);
     expect(await count(tester), 1);
     expect(delivered, isEmpty);
     expect(calls, ['requestNotificationsPermission']);
@@ -404,7 +411,7 @@ void main() {
       database: () => _CreateDb(failAfterInsert: true),
     );
     await finishCreate(tester);
-    expect(errors, isEmpty);
+    expect(tester.takeException(), isNull);
     expect(await count(tester), 0);
     expect(folder.listSync().whereType<File>(), hasLength(1));
     expect(find.text('저장하지 못했어요. 다시 시작해 볼까요?'), findsOneWidget);
@@ -416,25 +423,40 @@ void main() {
   });
 
   testWidgets('DB 저장 대기 중 종료해도 저장된 펫을 남기고 다음 단계는 중단한다', (tester) async {
-    final release = (await tester.runAsync(() async => Completer<void>()))!;
-    await mount(tester, database: () => _CreateDb(pause: release.future));
-    await invoke(tester, await start(tester));
+    final insert = await _pendingReply<void>(tester);
+    await mount(tester, database: () => _CreateDb(pause: insert.wait));
+    await startUntil(tester, insert.entered.future);
     await tester.pumpWidget(const SizedBox());
-    await tester.runAsync(() async => release.complete());
-    await drain(tester);
-    expect(errors, isEmpty);
+    await tester.runAsync(() async {
+      insert.reply.complete();
+      await pendingCreate;
+    });
+    expect(tester.takeException(), isNull);
     expect(await count(tester), 1);
     expect(delivered, isEmpty);
     expect(calls, isEmpty);
-    expect(tester.takeException(), isNull);
   });
+}
+
+// 실제 플랫폼 및 DB 콜백과 같은 비동기 실행 환경에서 완료 신호를 만든다.
+Future<_PendingReply<T>> _pendingReply<T>(WidgetTester tester) async =>
+    (await tester.runAsync(() async => _PendingReply<T>()))!;
+
+class _PendingReply<T> {
+  final entered = Completer<void>();
+  final reply = Completer<T>();
+
+  Future<T> wait() {
+    if (!entered.isCompleted) entered.complete();
+    return reply.future;
+  }
 }
 
 class _CreateDb extends AppDatabase {
   _CreateDb({this.pause, this.failAfterInsert = false})
     : super(NativeDatabase.memory());
 
-  final Future<void>? pause;
+  final Future<void> Function()? pause;
   bool failAfterInsert;
 
   @override
@@ -451,7 +473,7 @@ class _CreateDb extends AppDatabase {
     double? longitude,
     String? portraitPath,
   }) async {
-    await pause;
+    await pause?.call();
     final pet = await super.createPet(
       name: name,
       stage: stage,

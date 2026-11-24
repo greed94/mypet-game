@@ -634,4 +634,55 @@ void main() {
     expect(session.mode.offset, Duration.zero);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('시간 보내기 저장에 실패하면 안내를 보여 주고 같은 버튼으로 재시도한다', (tester) async {
+    final session = await mount(tester);
+    session.file.failFirst = true;
+
+    Future<void> advanceOneHour() async {
+      await tester.runAsync(
+        () => tester.tap(find.text('시간 보내기 ›').hitTestable()),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.runAsync(() => tester.tap(find.text('+1시간').hitTestable()));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    Future<void> expectAfterWrite(String text) async {
+      final finder = find.text(text);
+      final wait = Stopwatch()..start();
+      while (finder.evaluate().isEmpty &&
+          wait.elapsed < const Duration(seconds: 5)) {
+        await tester.runAsync(() => pumpEventQueue());
+        await tester.pump();
+      }
+      expect(finder, findsOneWidget);
+    }
+
+    await advanceOneHour();
+    await expectAfterWrite('시간 저장 중…');
+    await tester.tap(find.text('시간 저장 중…'));
+    await tester.pump();
+    expect(find.byType(TimeSheet), findsNothing);
+    expect(session.file.writes, hasLength(1));
+    session.file.release.complete();
+    await expectAfterWrite('연습 시간을 저장하지 못했어요. 시간 보내기를 다시 눌러 주세요.');
+    expect(find.text('연습 펫 · 10/20 10:00 (실제 시각)'), findsOneWidget);
+    expect(
+      (await tester.runAsync(() => TestMode.load(session.file.file)))!.offset,
+      Duration.zero,
+    );
+
+    await advanceOneHour();
+    await expectAfterWrite('연습 펫 · 10/20 11:00 (+1시간)');
+    expect(
+      (await tester.runAsync(() => TestMode.load(session.file.file)))!.offset,
+      const Duration(hours: 1),
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(Duration.zero);
+  });
 }

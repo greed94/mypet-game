@@ -109,6 +109,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _micSession = 0;
   int _feedbackSession = 0;
   bool _settingsOpen = false;
+  bool _savingPracticeTime = false;
   bool _appPaused = false;
 
   // SpeechToText는 화면이 바뀌어도 같은 인스턴스이므로 이전 취소가 끝난 뒤 시작한다.
@@ -747,7 +748,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Material(
       color: C3Colors.tapeYellow,
       child: InkWell(
-        onTap: () => _openTimeSheet(c),
+        onTap: _savingPracticeTime ? null : () => _openTimeSheet(c),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
           child: Row(
@@ -759,7 +760,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: C3Text.label.copyWith(fontSize: 14),
                 ),
               ),
-              Text('시간 보내기 ›', style: C3Text.label.copyWith(fontSize: 14)),
+              Text(
+                _savingPracticeTime ? '시간 저장 중…' : '시간 보내기 ›',
+                style: C3Text.label.copyWith(fontSize: 14),
+              ),
             ],
           ),
         ),
@@ -773,9 +777,19 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     final d = await showTimeSheet(context, c.now);
-    if (d == null || !mounted) return;
-    await widget.onJump?.call(d);
-    if (mounted) setState(() {});
+    if (d == null || !mounted || widget.controller != c || !_acceptsInput) {
+      return;
+    }
+    setState(() => _savingPracticeTime = true);
+    try {
+      await widget.onJump?.call(d);
+    } on FileSystemException {
+      if (mounted && widget.controller == c) {
+        _snack('연습 시간을 저장하지 못했어요. 시간 보내기를 다시 눌러 주세요.');
+      }
+    } finally {
+      if (mounted) setState(() => _savingPracticeTime = false);
+    }
   }
 
   void _snack(String text) {

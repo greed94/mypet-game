@@ -43,6 +43,7 @@ jobs:
           flutter analyze --no-pub
 
       - name: Check the practice clock and first reunion
+        timeout-minutes: 5
         run: >
           flutter test --no-pub --reporter expanded --concurrency=1
           test/test_mode_test.dart test/test_mode_flow_test.dart test/first_day_recognition_test.dart

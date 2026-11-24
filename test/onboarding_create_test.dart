@@ -160,6 +160,13 @@ void main() {
   Future<int> count(WidgetTester tester) async =>
       (await tester.runAsync(() => db.select(db.pets).get()))!.length;
 
+  Future<void> finishCreate(WidgetTester tester) async {
+    final create = (await start(tester)) as Future<void> Function();
+    // DB 롤백 뒤 finally에서 수행하는 실제 사진 파일 정리까지 기다린다.
+    await tester.runAsync(create);
+    await tester.pump();
+  }
+
   testWidgets('이전으로 돌아가는 첫 프레임의 시작 콜백은 펫을 저장하지 않는다', (tester) async {
     await mount(tester);
     final previousStart = await start(tester);
@@ -334,13 +341,13 @@ void main() {
         "BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END",
       ),
     );
-    await invoke(tester, await start(tester));
+    await finishCreate(tester);
     expect(errors, isEmpty);
     expect(await count(tester), 0);
     expect(folder.listSync().whereType<File>(), hasLength(2));
     expect(old.readAsBytesSync(), [1, 2, 3]);
     await tester.runAsync(() => db.customStatement('DROP TRIGGER fail_create'));
-    await invoke(tester, await start(tester));
+    await finishCreate(tester);
     expect(await count(tester), 1);
     expect(delivered, hasLength(1));
     expect(folder.listSync().whereType<File>(), hasLength(3));
@@ -396,12 +403,12 @@ void main() {
       photo: true,
       database: () => _CreateDb(failAfterInsert: true),
     );
-    await invoke(tester, await start(tester));
+    await finishCreate(tester);
     expect(errors, isEmpty);
     expect(await count(tester), 0);
     expect(folder.listSync().whereType<File>(), hasLength(1));
     expect(find.text('저장하지 못했어요. 다시 시작해 볼까요?'), findsOneWidget);
-    await invoke(tester, await start(tester));
+    await finishCreate(tester);
     expect(await count(tester), 1);
     expect(delivered, hasLength(1));
     expect(File(delivered.single.portraitPath!).existsSync(), isTrue);

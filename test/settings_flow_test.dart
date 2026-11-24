@@ -606,24 +606,25 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     await confirmPhoto(tester);
     final retry = find.text('이 얼굴 다시 저장');
-    for (var i = 0; i < 20 && retry.hitTestable().evaluate().isEmpty; i++) {
-      await drain(tester);
-    }
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => c.settled);
+    await tester.pump();
+    expect(retry.hitTestable(), findsOneWidget);
     expect(directoryRequests, 1);
     expect(c.pet.portraitPath, previous.portraitPath);
     await tester.runAsync(() => tester.tap(retry.hitTestable()));
-    for (var i = 0; i < 20 && c.pet.portraitPath == null; i++) {
-      await drain(tester);
-    }
+    await tester.runAsync(() => c.settled);
+    await tester.pump();
     expect(directoryRequests, 2);
+    expect(c.pet.portraitPath, isNotNull);
     final fur = c.pet.furMain;
     expect((fur >> 16) & 255, greaterThan((fur & 255) + 20));
-    await tester.runAsync(() async {
-      final saved = (await db.loadPet())!;
-      expect(saved.furMain, fur);
-      expect(await File(saved.portraitPath!).exists(), isTrue);
-      expect(folder.listSync().whereType<File>(), hasLength(1));
-    });
+    final saved = await tester.runAsync(db.loadPet);
+    expect(saved, isNotNull);
+    expect(saved!.furMain, fur);
+    expect(saved.portraitPath, c.pet.portraitPath);
+    expect(await tester.runAsync(File(saved.portraitPath!).exists), isTrue);
+    expect(folder.listSync().whereType<File>(), hasLength(1));
     expect(tester.takeException(), isNull);
   });
 

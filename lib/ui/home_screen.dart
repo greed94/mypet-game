@@ -1025,7 +1025,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         hide: const {Trick.fetch},
                         onTrick: c.command,
                         onNotebook: () => showTrickNotebook(context, c),
-                        onClose: () => setState(() => _cafeTray = false),
+                        onClose: () => _closePlayTray(c),
                       )
                     : _placePanel(c))
               : c.replaying
@@ -1205,7 +1205,7 @@ class _HomeScreenState extends State<HomeScreen> {
         tricks: c.tricks,
         onTrick: c.command,
         onNotebook: () => showTrickNotebook(context, c),
-        onClose: c.putBallAway,
+        onClose: () => _closePlayTray(c),
         // 공을 물고 오는 중엔 간식을 못 준다.
         treats: c.ball == Ball.carried ? 0 : c.pouch.length,
         onTreat: c.giveTreat,
@@ -1260,6 +1260,19 @@ class _HomeScreenState extends State<HomeScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [for (final button in buttons) Flexible(child: button)],
       ),
+    );
+  }
+
+  void _closePlayTray(PetController c) {
+    final atCafe = c.atCafe;
+    if (atCafe) {
+      setState(() => _cafeTray = false);
+    } else {
+      c.putBallAway();
+    }
+    Telemetry.logPlayMenuClose(
+      atCafe: atCafe,
+      open: atCafe ? _cafeTray : c.ball != Ball.none,
     );
   }
 

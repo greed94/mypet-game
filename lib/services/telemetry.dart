@@ -26,6 +26,14 @@ class Telemetry {
 
   static bool get active => _analytics != null;
 
+  /// 사용 기록을 켠 테스트폰에서만 종료 입력과 직후 상태를 logcat에 남긴다.
+  static void logPlayMenuClose({required bool atCafe, required bool open}) {
+    if (!active) return;
+    debugPrint(
+      'MypetQA play_close place=${atCafe ? 'cafe' : 'home'} menu_open=$open',
+    );
+  }
+
   /// 빌드에 켜져 있고 유저가 끄지 않았을 때만 켠다. Firebase가 안 뜨면 기록 없이 앱만 돈다.
   static Future<void> start() async {
     if (!buildEnabled || await isUserOff()) return;

@@ -195,10 +195,12 @@ void main() {
     SpeechToText? speech,
     Sfx? effects,
     FlutterSecureStorage? stepsStorage,
+    TransitionBuilder? builder,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildC3Theme(),
+        builder: builder,
         home: HomeScreen(
           controller: home.c,
           db: home.db,
@@ -272,6 +274,53 @@ void main() {
     expect(find.text('밥 주기').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  for (final hold in [true, false]) {
+    testWidgets(
+      '집에서 그만 놀기를 누르는 동안 공이 준비된다 · ${hold ? '손가락을 댄 채' : '직전 위치를 탭'}',
+      (tester) async {
+        final home = await make(tester);
+        tester.view.physicalSize = const Size(1080, 2340);
+        tester.view.devicePixelRatio = 2.625;
+        tester.platformDispatcher.textScaleFactorTestValue = 1.1;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        await mount(
+          tester,
+          home,
+          builder: (context, child) => C3SystemTextScale(
+            scaler: MediaQuery.textScalerOf(context),
+            child: MediaQuery.withClampedTextScaling(
+              maxScaleFactor: 1,
+              child: child!,
+            ),
+          ),
+        );
+        await tester.tap(find.text('놀아주기').hitTestable());
+        await tester.pump();
+        expect(home.c.ball, Ball.carried);
+
+        final close = find.text('그만 놀기').hitTestable();
+        final downAt = tester.getCenter(close);
+        final finger = hold ? await tester.startGesture(downAt) : null;
+        runUntil(home.c, () => home.c.ball == Ball.ready);
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(find.text('공 던지기'), findsOneWidget);
+        final upAt = tester.getCenter(close);
+        if (finger != null) {
+          await finger.up();
+        } else {
+          await tester.tapAt(downAt);
+        }
+        await tester.pump();
+
+        expect(home.c.ball, Ball.none);
+        expect(find.byType(PlayTray), findsNothing);
+        expect(find.text('밥 주기').hitTestable(), findsOneWidget);
+        expect(upAt, downAt, reason: '공 던지기와 간식 버튼이 생겨도 종료 버튼은 같은 자리에 남는다.');
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   Future<void> closeSpeechHome(WidgetTester tester) async {
     await tester.runAsync(() => tester.pumpWidget(const SizedBox()));

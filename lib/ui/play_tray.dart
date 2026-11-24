@@ -37,67 +37,72 @@ class PlayTray extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tray = Padding(
+    final actions = Wrap(
+      spacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (onThrow != null)
+          TextButton.icon(
+            onPressed: onThrow,
+            icon: const Icon(Icons.sports_baseball_outlined, size: 18),
+            label: const Text('공 던지기'),
+          ),
+        for (final t in Trick.values)
+          if (t.chip && !hide.contains(t))
+            _TrickChip(
+              trick: t,
+              progress: tricks[t],
+              onTap: () => onTrick(t),
+              onLongPress: onNotebook,
+            ),
+        if (treats > 0 && onTreat != null)
+          TextButton(
+            onPressed: onTreat,
+            style: TextButton.styleFrom(
+              minimumSize: const Size(48, 40),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+            ),
+            child: Text('간식 $treats'),
+          ),
+        if (onNotebook != null)
+          TextButton(
+            onPressed: onNotebook,
+            style: TextButton.styleFrom(
+              minimumSize: const Size(48, 40),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+            ),
+            child: const Text('훈련 수첩'),
+          ),
+      ],
+    );
+    return Padding(
       padding: EdgeInsets.fromLTRB(16, compact ? 4 : 14, 16, 2),
       child: StickerCard(
         tape: C3Colors.tapeSky,
         padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
-        child: SizedBox(
-          width: double.infinity,
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 0,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              if (onThrow != null)
-                TextButton.icon(
-                  onPressed: onThrow,
-                  icon: const Icon(Icons.sports_baseball_outlined, size: 18),
-                  label: const Text('공 던지기'),
-                ),
-              for (final t in Trick.values)
-                if (t.chip && !hide.contains(t))
-                  _TrickChip(
-                    trick: t,
-                    progress: tricks[t],
-                    onTap: () => onTrick(t),
-                    onLongPress: onNotebook,
-                  ),
-              if (treats > 0 && onTreat != null)
-                TextButton(
-                  onPressed: onTreat,
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(48, 40),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                  ),
-                  child: Text('간식 $treats'),
-                ),
-              if (onNotebook != null)
-                TextButton(
-                  onPressed: onNotebook,
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(48, 40),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                  ),
-                  child: const Text('훈련 수첩'),
-                ),
-              TextButton(
-                onPressed: onClose,
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(56, 40),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                ),
-                child: const Text('그만 놀기'),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: compact
+                  ? ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 58),
+                      child: SingleChildScrollView(child: actions),
+                    )
+                  : actions,
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: onClose,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(56, 48),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
               ),
-            ],
-          ),
+              child: const Text('그만 놀기'),
+            ),
+          ],
         ),
       ),
-    );
-    if (!compact) return tray;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 88),
-      child: SingleChildScrollView(child: tray),
     );
   }
 }

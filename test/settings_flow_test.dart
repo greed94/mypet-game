@@ -485,15 +485,16 @@ void main() {
       await selected.writeAsBytes(originalBytes);
     });
     final docs = (await tester.runAsync(() async => Completer<String>()))!;
-    final requested = (await tester.runAsync(() async => Completer<void>()))!;
+    var requested = (await tester.runAsync(() async => Completer<void>()))!;
     const picker = MethodChannel('plugins.flutter.io/image_picker');
     const paths = MethodChannel('plugins.flutter.io/path_provider');
     var first = true;
     messenger.setMockMethodCallHandler(picker, (_) async => selected.path);
-    messenger.setMockMethodCallHandler(paths, (_) async {
+    messenger.setMockMethodCallHandler(paths, (call) async {
+      if (call.method != 'getApplicationDocumentsDirectory') return folder.path;
+      if (!requested.isCompleted) requested.complete();
       if (first) {
         first = false;
-        requested.complete();
         return docs.future;
       }
       return folder.path;
@@ -522,26 +523,24 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(() async {
       docs.complete(folder.path);
-      await pumpEventQueue();
+      await c.settled;
     });
-    await drain(tester);
-    await tester.runAsync(() => c.settled);
-    expect(c.pet.portraitPath, isNotNull);
+    final firstPortrait = c.pet.portraitPath;
+    expect(firstPortrait, isNotNull);
     expect((await tester.runAsync(() => old.readAsBytes())), originalBytes);
     expect((await tester.runAsync(() async => folder.listSync().length)), 3);
     await openSettings(tester, c);
+    requested = (await tester.runAsync(() async => Completer<void>()))!;
     await start(tester, choose(), MockClient((_) async => response()), errors);
     await confirmPhoto(tester);
-    for (var i = 0; i < 20 && c.pet.portraitPath == null; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 5)),
-      );
-      await tester.pump();
-    }
-    await drain(tester);
+    await tester.runAsync(() async {
+      await requested.future.timeout(const Duration(seconds: 2));
+      await c.settled;
+    });
     await tester.pumpAndSettle();
     expect(errors, isEmpty);
     expect(c.pet.portraitPath, isNotNull);
+    expect(c.pet.portraitPath, isNot(firstPortrait));
     expect(c.pet.portraitPath, isNot(old.path));
     expect((await tester.runAsync(() => old.readAsBytes())), originalBytes);
     expect(find.text('사진에서 뽑은 색으로 다시 칠했어요.'), findsOneWidget);

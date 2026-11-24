@@ -300,23 +300,31 @@ void main() {
     expect(thought.getSemanticsData().value, contains('밥 주던 손'));
     await petFromRoom();
     await tester.runAsync(() => c.settled);
-    await tester.runAsync(() => tester.tap(find.text('일기').hitTestable()));
-    await tester.pump();
-    await tester.runAsync(() => pumpEventQueue());
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.runAsync(() => tester.tap(find.text('그날의 발자국').hitTestable()));
-    await tester.pump();
-    await tester.runAsync(() async {
-      await db.customSelect('SELECT 1').get();
-      await pumpEventQueue();
-    });
-    await tester.pump();
-    expect(find.text('밥 먹기'), findsOneWidget);
-    expect(
-      await tester.runAsync(() => db.eventsOfKind('first_recognition')),
-      hasLength(1),
-    );
-    expect(await tester.runAsync(() => db.allDiaries()), hasLength(1));
+    try {
+      await tester.runAsync(() => tester.tap(find.text('일기').hitTestable()));
+      await tester.pump();
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.runAsync(
+        () => tester.tap(find.text('그날의 발자국').hitTestable()),
+      );
+      await tester.pump();
+      await tester.runAsync(() async {
+        await db.customSelect('SELECT 1').get();
+        await pumpEventQueue();
+      });
+      await tester.pump();
+      expect(find.text('밥 먹기'), findsOneWidget);
+      expect(
+        await tester.runAsync(() => db.eventsOfKind('first_recognition')),
+        hasLength(1),
+      );
+      expect(await tester.runAsync(() => db.allDiaries()), hasLength(1));
+    } finally {
+      // 발자국 검사가 실패해도 다음 테스트 전에 Drift 구독 해제를 마친다.
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(Duration.zero);
+    }
   });
 
   testWidgets('시간 저장 중 두 번째 시간 보내기는 첫 시계를 덮어쓰지 않는다', (tester) async {

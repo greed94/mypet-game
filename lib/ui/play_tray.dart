@@ -124,18 +124,18 @@ class _TrickChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = progress ?? const TrickProgress();
     final trying = !p.learned && p.attempts > 0;
-    // 배운 개인기는 별(배운 뒤 연습한 날 수), 배우는 중이면 점 세 개.
+    // 첫 별까지 몇 번 더 해내야 하는지 칩에서도 볼 수 있다.
     final mark = p.learned
         ? '★' * p.stars
         : trying
-        ? '…'
+        ? '${p.successes}/$learnAfter'
         : '';
     return Semantics(
       button: true,
       label: p.learned
           ? '${trick.label}, 별 ${p.stars}개'
           : trying
-          ? '${trick.label}, 배우는 중'
+          ? '${trick.label}, 배우는 중, $learnAfter회 중 ${p.successes}회 성공'
           : trick.label,
       onTap: onTap,
       onLongPress: onLongPress,

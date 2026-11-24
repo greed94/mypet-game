@@ -29,7 +29,13 @@ void main() {
       if (puppySheets.contains(shape.id)) 'puppy',
     ]) {
       test('${shape.id}_$stage 시트가 규격에 맞는다', () {
-        final file = File('assets/sprites/${shape.id}_$stage.png');
+        final petStage = stage == 'puppy' ? PetStage.puppy : PetStage.adult;
+        final asset = spriteAsset(shape.id, petStage);
+        final expected = shape.id == 'noeul'
+            ? 'sprites/papillon_adult.png'
+            : 'sprites/${shape.id}_$stage.png';
+        expect(asset, expected);
+        final file = File('assets/$asset');
         expect(file.existsSync(), isTrue);
         final sheet = img.decodePng(file.readAsBytesSync())!;
         expect([sheet.width, sheet.height], [32 * 4, 32 * 8]);

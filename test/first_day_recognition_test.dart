@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mypet/data/database.dart';
 import 'package:mypet/pet/pet_controller.dart';
 import 'package:mypet/pet/pet_rules.dart';
+import 'package:mypet/pet/wish.dart';
 
 final _met = DateTime(2026, 11, 20, 23, 40);
 final _morning = DateTime(2026, 11, 21, 9);
@@ -73,6 +74,39 @@ class _HeldInsertDb extends AppDatabase {
 }
 
 void main() {
+  for (final (care, recognition) in [
+    ('feed', '킁… 어제 밥 주던 손 냄새다!'),
+    ('play', '어제 공 던져 준 그 손이다!'),
+  ]) {
+    test('첫 재회 말풍선을 읽은 다음 오늘 소원을 말한다 · $care', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final pet = await _adopt(db);
+      await db.addEvent(care, '첫날의 돌봄', _met);
+      var now = _morning;
+      final c = _open(db, pet, () => now)..wake();
+      await c.settled;
+      final wishLine = wishThought(c.openWish!);
+      c.interact(Interaction.pet);
+      await c.settled;
+      expect(c.bubble, recognition);
+
+      void advanceFrame() {
+        now = now.add(const Duration(milliseconds: 250));
+        c.tick(0.25);
+      }
+
+      for (var frame = 0; frame < 24; frame++) {
+        advanceFrame();
+        expect(c.bubble, recognition, reason: '${(frame + 1) * 250}ms');
+      }
+      for (var frame = 0; frame < 180 && c.bubble != wishLine; frame++) {
+        advanceFrame();
+      }
+      expect(c.bubble, wishLine);
+    });
+  }
+
   test('실제 첫 끼는 DB를 닫은 뒤에도 첫 재회의 반응과 일기에 한 번 남는다', () async {
     final dir = Directory.systemTemp.createTempSync('mypet_first_return_');
     addTearDown(() => dir.deleteSync(recursive: true));

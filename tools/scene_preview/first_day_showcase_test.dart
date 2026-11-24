@@ -108,7 +108,11 @@ void main() {
     }
 
     final chapters = <(String, int, int)>[];
-    Future<void> record(String caption, int count) async {
+    Future<void> record(
+      String caption,
+      int count, {
+      String? expectedBubble,
+    }) async {
       final start = index;
       for (var i = 0; i < count; i++) {
         recordingFrame = index;
@@ -119,6 +123,13 @@ void main() {
         final elapsed = Duration(microseconds: micros);
         now = now.add(elapsed);
         await tester.pump(elapsed);
+        if (expectedBubble != null) {
+          expect(
+            controller!.bubble,
+            expectedBubble,
+            reason: '재회 장면 $index 프레임',
+          );
+        }
         final number = index.toString().padLeft(4, '0');
         await capturePreview(
           tester,
@@ -191,7 +202,8 @@ void main() {
     recordingFrame = index;
     await tester.tapAt(dog);
     await drain(advance: false);
-    expect(c.bubble, '킁… 어제 밥 주던 손 냄새다!');
+    const reunionLine = '킁… 어제 밥 주던 손 냄새다!';
+    expect(c.bubble, reunionLine);
     expect(
       await tester.runAsync(() => db.eventsOfKind('first_recognition')),
       hasLength(1),
@@ -201,7 +213,7 @@ void main() {
       find.byKey(screen),
       File('${output.path}/mypet-first-return.png'),
     );
-    await record('쓰다듬자 어제 밥 주던 손을 알아봐요', 44);
+    await record('쓰다듬자 어제 밥 주던 손을 알아봐요', 44, expectedBubble: reunionLine);
     await tester.tap(find.text('일기').hitTestable());
     await drain();
     await tester.tap(find.text('그날의 발자국').hitTestable());

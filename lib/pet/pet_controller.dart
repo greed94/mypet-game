@@ -4595,6 +4595,7 @@ class PetController extends ChangeNotifier {
     // 오늘의 소원을 고른 뒤 한가할 때 속마음으로 한 번 말한다.
     if (openWish case final w?
         when _wishToSay &&
+            bubble == null &&
             !_asleepAt(_clock()) &&
             stats.energy >= tiredEnergy) {
       _wishToSay = false;

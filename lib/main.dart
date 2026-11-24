@@ -327,7 +327,7 @@ class _MypetAppState extends State<MypetApp> {
         value: c3SystemBars,
         child: C3SystemTextScale(
           scaler: MediaQuery.textScalerOf(context),
-          // 고정 스티커 화면은 원래 배율, 사진 편집기는 기기 배율로 표시한다.
+          // 고정 스티커 화면은 원래 배율, 입양·모양 선택·사진 편집은 기기 배율로 표시한다.
           child: MediaQuery.withClampedTextScaling(
             maxScaleFactor: 1.0,
             child: Stack(

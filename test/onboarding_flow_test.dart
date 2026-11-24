@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -146,6 +147,159 @@ void main() {
       tester.widget<ShapePicker>(find.byType(ShapePicker)).selected,
       'shiba',
     );
+  });
+
+  testWidgets('다음으로 간 직후 이전 모양 카드가 이름 화면의 강아지를 바꾸지 않는다', (tester) async {
+    await mount(tester);
+    await tester.tap(find.widgetWithText(ChoiceChip, '갈색'));
+    await tester.pump();
+    final before = tester
+        .widget<ShapePicker>(find.byType(ShapePicker))
+        .selected;
+    tester.semantics.tap(find.semantics.byLabel('다음'));
+    tester.semantics.tap(find.semantics.byLabel('시바·진돗개·스피츠'));
+    await tester.pumpAndSettle();
+    final dog = tester.widget<PetSpritePreview>(
+      find.descendant(
+        of: find.byType(Polaroid),
+        matching: find.byType(PetSpritePreview),
+      ),
+    );
+    expect(dog.shape, before);
+  });
+
+  testWidgets('두 배 글씨의 입양 사진에서 긴 이름과 나이가 끝까지 보인다', (tester) async {
+    await mount(tester);
+    tester.view.physicalSize = const Size(320, 620);
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await tester.pumpAndSettle();
+    final color = find.widgetWithText(ChoiceChip, '갈색');
+    await tester.ensureVisible(color);
+    await tester.pumpAndSettle();
+    await tester.tap(color);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SegmentedButton<PetStage>>(
+            find.byType(SegmentedButton<PetStage>),
+          )
+          .direction,
+      Axis.vertical,
+    );
+    final ageOption = find.text('지금 모습 그대로');
+    await tester.ensureVisible(ageOption);
+    await tester.pumpAndSettle();
+    await tester.tap(ageOption);
+    const name = '반짝별무늬강아지';
+    await tester.enterText(find.widgetWithText(TextField, '이름'), name);
+    await tester.pump();
+    final portrait = find.byType(Polaroid);
+    await tester.ensureVisible(portrait);
+    await tester.pumpAndSettle();
+    Finder line(String text) => find.descendant(
+      of: portrait,
+      matching: find.byWidgetPredicate(
+        (w) => w is RichText && w.text.toPlainText() == text,
+      ),
+    );
+    final nickname = line(name), age = line('다 자란 강아지');
+    expect(
+      tester.renderObject<RenderParagraph>(nickname).didExceedMaxLines,
+      isFalse,
+    );
+    expect(
+      tester.getRect(age).top,
+      greaterThanOrEqualTo(tester.getRect(nickname).bottom),
+    );
+    expect(tester.getRect(portrait).contains(tester.getCenter(age)), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('320폭에서 강아지 모양을 두 개씩 비교하고 키보드로 선택한다', (tester) async {
+    await mount(tester);
+    tester.view.physicalSize = const Size(320, 620);
+    await tester.pumpAndSettle();
+    final brown = find.widgetWithText(ChoiceChip, '갈색');
+    await tester.ensureVisible(brown);
+    await tester.pumpAndSettle();
+    await tester.tap(brown.hitTestable());
+    await tester.pump();
+    Finder option(String name) => find.byWidgetPredicate(
+      (w) => w is Semantics && w.properties.label == name,
+    );
+    const firstName = '파피용·치와와';
+    const secondName = '말티즈·푸들·비숑·포메';
+    final first = option(firstName), second = option(secondName);
+    expect(
+      tester.getTopLeft(first).dy,
+      closeTo(tester.getTopLeft(second).dy, 1),
+    );
+    expect(tester.getCenter(first).dx, lessThan(tester.getCenter(second).dx));
+    await tester.ensureVisible(second);
+    await tester.pumpAndSettle();
+    final spoken = find.semantics.byLabel(secondName);
+    expect(spoken.evaluate(), hasLength(1));
+    tester.semantics.performAction(spoken, SemanticsAction.focus);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(
+      tester.widget<ShapePicker>(find.byType(ShapePicker)).selected,
+      'maltese',
+    );
+    expect(tester.widget<Semantics>(second).properties.selected, isTrue);
+    expect(
+      find.descendant(of: second, matching: find.byIcon(Icons.check_circle)),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('작은 화면의 큰 글씨로 모양을 고르고 키보드 위에서 입양 마지막 단계까지 간다', (tester) async {
+    await mount(tester);
+    tester.view.physicalSize = const Size(320, 520);
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await tester.pumpAndSettle();
+    final brown = find.widgetWithText(ChoiceChip, '갈색');
+    await tester.ensureVisible(brown);
+    await tester.pumpAndSettle();
+    await tester.tap(brown.hitTestable());
+    await tester.pump();
+    final card = find.text('시바·진돗개·스피츠');
+    await tester.ensureVisible(card);
+    await tester.pumpAndSettle();
+    final spoken = find.semantics.byLabel('시바·진돗개·스피츠');
+    expect(spoken.evaluate(), hasLength(1));
+    tester.semantics.tap(spoken);
+    await tester.pump();
+    expect(
+      tester.widget<ShapePicker>(find.byType(ShapePicker)).selected,
+      'shiba',
+    );
+    final next = find.widgetWithText(FilledButton, '다음');
+    await tester.tap(next.hitTestable());
+    await tester.pumpAndSettle();
+    final name = find.widgetWithText(TextField, '이름');
+    await tester.ensureVisible(name);
+    await tester.pumpAndSettle();
+    await tester.enterText(name, '몽실이');
+    tester.view.viewInsets = const FakeViewPadding(bottom: 260);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getBottomRight(next.hitTestable()).dy,
+      lessThanOrEqualTo(260),
+    );
+    await tester.tap(next.hitTestable());
+    await tester.pumpAndSettle();
+    final skip = find.widgetWithText(FilledButton, '건너뛰고 시작');
+    expect(skip.hitTestable(), findsOneWidget);
+    expect(tester.getBottomRight(skip).dx, lessThanOrEqualTo(320));
+    expect(tester.getBottomRight(skip).dy, lessThanOrEqualTo(260));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('키보드가 올라온 짧은 화면에서도 다음과 동네 건너뛰기에 닿는다', (tester) async {

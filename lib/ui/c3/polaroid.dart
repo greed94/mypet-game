@@ -11,6 +11,7 @@ class Polaroid extends StatelessWidget {
     required this.caption,
     this.captionRight,
     this.captionContent,
+    this.pictureHeight,
     this.controls,
     this.action,
   });
@@ -19,13 +20,24 @@ class Polaroid extends StatelessWidget {
   final String caption;
   final String? captionRight;
   final Widget? captionContent;
+
+  /// 지정하면 사진 영역의 높이를 유지하고 아래 캡션이 내용만큼 자란다.
+  final double? pictureHeight;
   final Widget? controls;
   final Widget? action;
 
   @override
   Widget build(BuildContext context) {
+    final picture = ClipRRect(
+      borderRadius: BorderRadius.circular(2),
+      child: child,
+    );
+    final fixedCaptionHeight =
+        captionContent != null || (controls == null && action != null)
+        ? 48.0
+        : 32.0;
     return Stack(
-      fit: StackFit.expand,
+      fit: pictureHeight == null ? StackFit.expand : StackFit.passthrough,
       clipBehavior: Clip.none,
       children: [
         Container(
@@ -47,19 +59,20 @@ class Polaroid extends StatelessWidget {
             ],
           ),
           child: Column(
+            mainAxisSize: pictureHeight == null
+                ? MainAxisSize.max
+                : MainAxisSize.min,
             children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: child,
+              if (pictureHeight == null)
+                Expanded(child: picture)
+              else
+                SizedBox(
+                  width: double.infinity,
+                  height: pictureHeight,
+                  child: picture,
                 ),
-              ),
               SizedBox(
-                height:
-                    captionContent != null ||
-                        (controls == null && action != null)
-                    ? 48
-                    : 32,
+                height: pictureHeight == null ? fixedCaptionHeight : null,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(4, 0, 4, 1),
                   child: Row(

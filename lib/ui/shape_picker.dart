@@ -37,21 +37,45 @@ class ShapePicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: [
-        for (final shape in shapes)
-          // 개인 사진으로 만든 틀은 이미 쓰는 펫에게만 계속 보여 준다.
-          if (shape.id != 'noeul' || shape.id == selected)
-            _ShapeCard(
-              shape: shape,
-              colors: colors,
-              stage: stage,
-              selected: shape.id == selected,
-              onTap: () => onSelect(shape.id),
-            ),
-      ],
+    const spacing = 10.0;
+    return C3SystemTextScale.restore(
+      context,
+      child: LayoutBuilder(
+        builder: (context, bounds) {
+          // 13px 이름을 아홉 글자 정도 읽을 수 있는 폭에서 다음 열을 연다.
+          final minimum = 16 + MediaQuery.textScalerOf(context).scale(13) * 9;
+          final available = bounds.hasBoundedWidth ? bounds.maxWidth : 140.0;
+          final columns = ((available + spacing) / (minimum + spacing))
+              .floor()
+              .clamp(1, 3);
+          final width = (available - spacing * (columns - 1)) / columns;
+          return Wrap(
+            spacing: spacing,
+            runSpacing: spacing,
+            children: [
+              for (final shape in shapes)
+                // 개인 사진으로 만든 틀은 이미 쓰는 펫에게만 계속 보여 준다.
+                if (shape.id != 'noeul' || shape.id == selected)
+                  SizedBox(
+                    width: width,
+                    child: _ShapeCard(
+                      shape: shape,
+                      colors: colors,
+                      stage: stage,
+                      selected: shape.id == selected,
+                      onTap: () {
+                        if (!context.mounted ||
+                            ModalRoute.of(context)?.isCurrent == false) {
+                          return;
+                        }
+                        onSelect(shape.id);
+                      },
+                    ),
+                  ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -73,33 +97,59 @@ class _ShapeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final border = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(8),
+      side: BorderSide(
+        color: selected ? C3Colors.stampInk : C3Colors.line,
+        width: selected ? 2.5 : 1.5,
+      ),
+    );
     return Semantics(
+      container: true,
       button: true,
       selected: selected,
       label: shape.examples,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 140,
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-          decoration: BoxDecoration(
-            color: C3Colors.card,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: selected ? C3Colors.stamp : C3Colors.line,
-              width: selected ? 2.5 : 1.5,
+      child: Material(
+        color: C3Colors.card,
+        shape: border,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: border,
+          child: ExcludeSemantics(
+            child: Stack(
+              alignment: Alignment.topCenter,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+                  child: Column(
+                    children: [
+                      PetSpritePreview(
+                        shape: shape.id,
+                        colors: colors,
+                        stage: stage,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        shape.examples,
+                        textAlign: TextAlign.center,
+                        style: C3Text.label.copyWith(fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                if (selected)
+                  const Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Icon(
+                      Icons.check_circle,
+                      size: 19,
+                      color: C3Colors.stampInk,
+                    ),
+                  ),
+              ],
             ),
-          ),
-          child: Column(
-            children: [
-              PetSpritePreview(shape: shape.id, colors: colors, stage: stage),
-              const SizedBox(height: 6),
-              Text(
-                shape.examples,
-                textAlign: TextAlign.center,
-                style: C3Text.label.copyWith(fontSize: 13),
-              ),
-            ],
           ),
         ),
       ),
@@ -224,7 +274,11 @@ class _PetSpritePreviewState extends State<PetSpritePreview> {
       child: _failed
           ? const Icon(Icons.pets_outlined, semanticLabel: '모습을 불러오지 못했어요')
           : image == null
-          ? null
+          ? const Icon(
+              Icons.more_horiz,
+              color: C3Colors.line,
+              semanticLabel: '모습 불러오는 중',
+            )
           : CustomPaint(painter: _FramePainter(image, widget.sitting)),
     );
   }

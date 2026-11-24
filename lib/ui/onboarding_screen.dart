@@ -287,21 +287,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope<void>(
-      canPop: !_creating && (_step == 0 || _createdPet != null),
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && _step > 0) _go(_step - 1);
-      },
-      child: Scaffold(
-        body: PaperBackground(
-          child: SafeArea(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
-                child: PageView(
-                  controller: _page,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [_lookPage(), _namePage(), _placePage()],
+    return C3SystemTextScale.restore(
+      context,
+      child: PopScope<void>(
+        canPop: !_creating && (_step == 0 || _createdPet != null),
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop && _step > 0) _go(_step - 1);
+        },
+        child: Scaffold(
+          body: PaperBackground(
+            child: SafeArea(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: PageView(
+                    controller: _page,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: [_lookPage(), _namePage(), _placePage()],
+                  ),
                 ),
               ),
             ),
@@ -391,6 +394,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               colors: colors,
               selected: _shape,
               onSelect: (id) {
+                if (!mounted ||
+                    _step != 0 ||
+                    _creating ||
+                    _createdPet != null) {
+                  return;
+                }
                 Telemetry.track('shape_pick', {'shape': id});
                 setState(() => _shape = id);
               },
@@ -424,13 +433,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          SegmentedButton<PetStage>(
-            segments: const [
-              ButtonSegment(value: PetStage.puppy, label: Text('아기부터 키우기')),
-              ButtonSegment(value: PetStage.adult, label: Text('지금 모습 그대로')),
-            ],
-            selected: {_stage},
-            onSelectionChanged: (s) => setState(() => _stage = s.first),
+          LayoutBuilder(
+            builder: (context, bounds) {
+              final labelSize = MediaQuery.textScalerOf(context).scale(16);
+              // 두 선택지의 이름과 선택 표시가 한 줄에 들어가는 폭이다.
+              final fitsRow = bounds.maxWidth / 2 >= labelSize * 6 + 36;
+              return SegmentedButton<PetStage>(
+                direction: fitsRow ? Axis.horizontal : Axis.vertical,
+                segments: const [
+                  ButtonSegment(value: PetStage.puppy, label: Text('아기부터 키우기')),
+                  ButtonSegment(
+                    value: PetStage.adult,
+                    label: Text('지금 모습 그대로'),
+                  ),
+                ],
+                selected: {_stage},
+                onSelectionChanged: (s) {
+                  if (_step == 1 && !_creating && _createdPet == null) {
+                    setState(() => _stage = s.first);
+                  }
+                },
+              );
+            },
           ),
           if (_colors case final colors?) ...[
             const SizedBox(height: 28),
@@ -577,11 +601,15 @@ class _Page extends StatelessWidget {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
-          child: Row(
+          child: OverflowBar(
+            alignment: back == null
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.spaceBetween,
+            overflowAlignment: OverflowBarAlignment.end,
+            overflowSpacing: 4,
             children: [
               if (back != null)
                 TextButton(onPressed: back, child: const Text('이전')),
-              const Spacer(),
               FilledButton(onPressed: next, child: Text(nextLabel)),
             ],
           ),
@@ -607,17 +635,44 @@ class _AdoptionPortrait extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final age = stage == PetStage.puppy ? '아기 강아지' : '다 자란 강아지';
+    final caption = name.isEmpty ? '이름을 기다리는 중' : name;
+    final largeType = MediaQuery.textScalerOf(context).scale(18) > 18;
     return Center(
       child: SizedBox(
         width: 268,
-        height: 196,
+        height: largeType ? null : 196,
         child: Semantics(
           image: true,
           excludeSemantics: true,
           label: '${name.isEmpty ? age : '$name, $age'} 모습 미리 보기',
           child: Polaroid(
-            caption: name.isEmpty ? '이름을 기다리는 중' : name,
-            captionRight: age,
+            caption: caption,
+            captionRight: largeType ? null : age,
+            pictureHeight: largeType ? 156 : null,
+            captionContent: largeType
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          caption,
+                          style: C3Text.pet.copyWith(
+                            fontSize: 18,
+                            color: C3Colors.ink2,
+                          ),
+                        ),
+                        Text(
+                          age,
+                          style: C3Text.label.copyWith(
+                            fontSize: 13,
+                            color: C3Colors.ink3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : null,
             child: CustomPaint(
               painter: const _PortraitRoom(),
               child: Align(

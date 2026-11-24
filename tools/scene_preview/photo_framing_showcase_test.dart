@@ -2,14 +2,19 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:image/image.dart' as img;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mypet/art/photo_art.dart';
 import 'package:mypet/data/database.dart';
 import 'package:mypet/main.dart';
+import 'package:mypet/pet/shapes.dart';
+import 'package:mypet/ui/c3/polaroid.dart';
 import 'package:mypet/services/test_mode.dart';
 import 'package:mypet/ui/home_screen.dart';
 import 'package:mypet/ui/settings_screen.dart';
+import 'package:mypet/ui/shape_picker.dart';
 
 import 'capture_preview.dart';
 import 'preview_fonts.dart';
@@ -81,12 +86,82 @@ void main() {
       }
 
       await drain();
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpAndSettle();
+      expect(
+        MediaQuery.textScalerOf(
+          tester.element(find.text('어떤 아이인가요?')),
+        ).scale(16),
+        32,
+      );
+      tester.platformDispatcher.clearTextScaleFactorTestValue();
+      await tester.pumpAndSettle();
       await tester.runAsync(() => tester.tap(find.text('사진으로 만들기')));
       await until(() => find.text('얼굴 위치 맞추기').evaluate().isNotEmpty);
       final shape = find.text('리트리버·비글·코커');
       await tester.ensureVisible(shape);
       await tester.tap(shape.hitTestable());
       await tester.pump();
+      final cards = find.descendant(
+        of: find.byType(ShapePicker),
+        matching: find.byType(PetSpritePreview),
+      );
+      final paintings = find.descendant(
+        of: cards,
+        matching: find.byType(CustomPaint),
+      );
+      Future<void> captureCards(File file, Iterable<String> names) async {
+        await until(() => paintings.evaluate().length == 6);
+        await drain(2);
+        final regions = <String, Rect>{
+          for (final name in names)
+            name: tester.getRect(
+              find.descendant(
+                of: find.byWidgetPredicate(
+                  (w) => w is Semantics && w.properties.label == name,
+                ),
+                matching: find.byType(PetSpritePreview),
+              ),
+            ),
+        };
+        final width = tester.getSize(find.byKey(surface)).width;
+        await capturePreview(tester, find.byKey(surface), file);
+        await tester.runAsync(() async {
+          final image = img.decodePng(await file.readAsBytes())!;
+          final scale = image.width / width;
+          for (final entry in regions.entries) {
+            final box = entry.value;
+            final left = (box.left * scale).ceil(),
+                right = (box.right * scale).floor();
+            final top = (box.top * scale).ceil(),
+                bottom = (box.bottom * scale).floor();
+            expect(
+              left >= 0 &&
+                  right <= image.width &&
+                  top >= 0 &&
+                  bottom <= image.height,
+              isTrue,
+              reason: entry.key,
+            );
+            var outlinePixels = 0;
+            for (var y = top; y < bottom; y++) {
+              for (var x = left; x < right; x++) {
+                final pixel = image.getPixel(x, y);
+                if (pixel.r < 125 && pixel.g < 100 && pixel.b < 100) {
+                  outlinePixels++;
+                }
+              }
+            }
+            expect(
+              outlinePixels,
+              greaterThan(50),
+              reason: '${entry.key}의 강아지 윤곽',
+            );
+          }
+        });
+      }
+
       final edit = find.text('얼굴 위치 맞추기');
       await tester.ensureVisible(edit);
       await tester.tap(edit.hitTestable());
@@ -120,18 +195,80 @@ void main() {
         find.byKey(surface),
         File('${output.parent.path}/mypet-photo-large-text.png'),
       );
-      tester.platformDispatcher.clearTextScaleFactorTestValue();
-      await tester.pumpAndSettle();
       await tester.tap(confirm);
+      await tester.pumpAndSettle();
+      final paired = File('${output.path}/shape-pair.png');
+      final enlarged = File('${output.path}/shape-large.png');
+      tester.platformDispatcher.clearTextScaleFactorTestValue();
+      tester.view.physicalSize = const Size(320, 620);
+      await tester.pumpAndSettle();
+      await Scrollable.ensureVisible(
+        tester.element(find.text('어떤 모양이 가장 닮았나요?')),
+      );
+      await tester.pumpAndSettle();
+      await captureCards(paired, friendShapes.map((shape) => shape.examples));
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      await tester.pumpAndSettle();
+      await Scrollable.ensureVisible(tester.element(shape), alignment: .5);
+      await tester.pumpAndSettle();
+      await captureCards(enlarged, ['리트리버·비글·코커']);
+      tester.view.physicalSize = const Size(392, 820);
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
       await tester.pumpAndSettle();
-      await tester.enterText(find.widgetWithText(TextField, '이름'), '호두');
+      final nameField = find.widgetWithText(TextField, '이름');
+      expect(MediaQuery.textScalerOf(tester.element(nameField)).scale(16), 32);
+      await tester.ensureVisible(nameField);
+      await tester.pumpAndSettle();
+      tester.view.physicalSize = const Size(320, 620);
+      await tester.pumpAndSettle();
+      await tester.enterText(nameField, '반짝별무늬강아지');
+      final adult = find.text('지금 모습 그대로');
+      await tester.ensureVisible(adult);
+      await tester.pumpAndSettle();
+      await tester.tap(adult.hitTestable());
+      await tester.pump();
+      final portrait = find.byType(Polaroid);
+      await Scrollable.ensureVisible(tester.element(portrait), alignment: .5);
+      await tester.pumpAndSettle();
+      final pose = find.descendant(
+        of: portrait,
+        matching: find.byType(PetSpritePreview),
+      );
+      await until(
+        () => find
+            .descendant(of: pose, matching: find.byType(CustomPaint))
+            .evaluate()
+            .isNotEmpty,
+      );
+      final fullName = find.descendant(
+        of: portrait,
+        matching: find.byWidgetPredicate(
+          (w) => w is RichText && w.text.toPlainText() == '반짝별무늬강아지',
+        ),
+      );
+      expect(
+        tester.renderObject<RenderParagraph>(fullName).didExceedMaxLines,
+        isFalse,
+      );
+      final nameCard = File('${output.path}/large-name.png');
+      await capturePreview(tester, find.byKey(surface), nameCard);
+      tester.view.physicalSize = const Size(392, 820);
+      await tester.pumpAndSettle();
+      final puppy = find.text('아기부터 키우기');
+      await tester.ensureVisible(puppy);
+      await tester.pumpAndSettle();
+      await tester.tap(puppy.hitTestable());
+      await tester.ensureVisible(nameField);
+      await tester.pumpAndSettle();
+      await tester.enterText(nameField, '호두');
       await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());
       await tester.pumpAndSettle();
       await tester.runAsync(() => tester.tap(find.text('건너뛰고 시작')));
       await until(() => find.byType(HomeScreen).evaluate().isNotEmpty);
+      tester.platformDispatcher.clearTextScaleFactorTestValue();
+      await tester.pump();
       final c = tester.widget<HomeScreen>(find.byType(HomeScreen)).controller;
       await tester.runAsync(() => c.settled);
       await drain();
@@ -159,6 +296,24 @@ void main() {
       expect(firstPixels, isNotEmpty);
       await tester.tap(find.bySemanticsLabel('설정').hitTestable());
       await drain(22);
+      Future<(double, bool)> measureLargePicker() async {
+        tester.view.physicalSize = const Size(320, 620);
+        tester.platformDispatcher.textScaleFactorTestValue = 2;
+        await drain();
+        final first = find.text('파피용·치와와'), second = find.text('말티즈·푸들·비숑·포메');
+        await tester.ensureVisible(first);
+        await drain();
+        final size = MediaQuery.textScalerOf(tester.element(first)).scale(13);
+        final oneColumn =
+            (tester.getCenter(first).dx - tester.getCenter(second).dx).abs() <
+            1;
+        tester.platformDispatcher.clearTextScaleFactorTestValue();
+        tester.view.physicalSize = const Size(392, 820);
+        await drain();
+        return (size, oneColumn);
+      }
+
+      final settingsCards = await measureLargePicker();
       final chooseAgain = find.text('사진으로 색 다시 뽑기');
       final settingsList = find
           .descendant(
@@ -190,13 +345,35 @@ void main() {
       await tester.tap(find.byType(BackButton).hitTestable());
       await drain(22);
       expect(find.byType(SettingsScreen), findsOneWidget);
-      await tester.tap(find.byType(BackButton).hitTestable());
+      await tester.ensureVisible(find.text('시바·진돗개·스피츠'));
+      await drain();
+      final navigation = SystemChannels.navigation;
+      final reply = await messenger.handlePlatformMessage(
+        navigation.name,
+        navigation.codec.encodeMethodCall(const MethodCall('popRoute')),
+        null,
+      );
+      expect(navigation.codec.decodeEnvelope(reply!), isTrue);
+      tester.semantics.tap(find.semantics.byLabel('시바·진돗개·스피츠'));
       await drain(22);
       expect(find.byType(HomeScreen), findsOneWidget);
       expect(c.pet.furMain, mainColor);
       expect(c.pet.portraitPath, kept.path);
       final unchanged = File('${output.path}/after-cancel.png');
       await capturePreview(tester, find.byKey(surface), unchanged);
+      await tester.tap(find.text('도감').hitTestable());
+      await drain(22);
+      final bring = find.text('데려오기');
+      await tester.ensureVisible(bring);
+      await drain();
+      await tester.tap(bring.hitTestable());
+      await drain(22);
+      final friendCards = await measureLargePicker();
+      final keptShape = (await tester.runAsync(() => db.loadPet()))!.shape;
+      expect(
+        (settingsCards, friendCards, keptShape),
+        ((26.0, true), (26.0, true), 'retriever'),
+      );
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(milliseconds: 20));
       await tester.runAsync(() async {
@@ -214,40 +391,25 @@ void main() {
         } finally {
           await reopened.close();
         }
-        final encoded = await Process.run('ffmpeg', [
-          '-hide_banner',
-          '-loglevel',
-          'error',
-          '-y',
-          '-i',
-          original.path,
-          '-i',
-          framed.path,
-          '-i',
-          homeShot.path,
-          '-filter_complex',
-          'hstack=inputs=3',
-          '-frames:v',
-          '1',
-          '${output.parent.path}/mypet-photo-framing.png',
-        ]);
-        expect(encoded.exitCode, 0, reason: encoded.stderr.toString());
-        final compared = await Process.run('ffmpeg', [
-          '-hide_banner',
-          '-loglevel',
-          'error',
-          '-y',
-          '-i',
-          proposed.path,
-          '-i',
-          unchanged.path,
-          '-filter_complex',
-          'hstack=inputs=2',
-          '-frames:v',
-          '1',
-          '${output.parent.path}/mypet-photo-cancel.png',
-        ]);
-        expect(compared.exitCode, 0, reason: compared.stderr.toString());
+        Future<void> spread(List<File> pictures, String name) async {
+          final result = await Process.run('ffmpeg', [
+            '-hide_banner',
+            '-loglevel',
+            'error',
+            '-y',
+            for (final picture in pictures) ...['-i', picture.path],
+            '-filter_complex',
+            'hstack=inputs=${pictures.length}',
+            '-frames:v',
+            '1',
+            '${output.parent.path}/$name.png',
+          ]);
+          expect(result.exitCode, 0, reason: result.stderr.toString());
+        }
+
+        await spread([original, framed, homeShot], 'mypet-photo-framing');
+        await spread([proposed, unchanged], 'mypet-photo-cancel');
+        await spread([paired, enlarged, nameCard], 'mypet-adoption-shapes');
       });
       expect(tester.takeException(), isNull);
     },

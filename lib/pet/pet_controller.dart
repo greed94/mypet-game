@@ -2199,11 +2199,11 @@ class PetController extends ChangeNotifier {
   bool get praiseOpen => _livePraise != null;
 
   /// 개인기를 시킨다. 목소리·글이나 놀이 칸 칩에서 온다.
-  void command(Trick t, {String via = 'chip'}) {
+  TrickCommandOutcome command(Trick t, {String via = 'chip'}) {
     _noteOwner();
     if ((walking || out) && t == Trick.fetch) {
       _play(const [PetStep(Behavior.happy, 2, thought: '집에 가서 하자!')]);
-      return;
+      return TrickCommandOutcome.away;
     }
     // 칩을 고르는 동안은 공을 치우지 않는다. 밤엔 몇 초 만에 치워 칩이 사라졌다.
     _ballWait = 0;
@@ -2309,6 +2309,14 @@ class PetController extends ChangeNotifier {
       'stars': (tricks[t] ?? before).stars,
     });
     _save(now);
+    // 물고 오는 중에는 동작을 바꾸지 않아도 연습 횟수와 별은 바로 표시해야 한다.
+    if (bringing) notifyListeners();
+    return switch (r) {
+      TrickTry(learnedNow: true) => TrickCommandOutcome.learned,
+      TrickTry(success: true) => TrickCommandOutcome.succeeded,
+      TrickTry(counted: true) => TrickCommandOutcome.missed,
+      _ => TrickCommandOutcome.tired,
+    };
   }
 
   /// 잘 익힌 개인기를 이어서 한다(앉아 엎드려 돌아). 별 셋이라 틀리지 않는다.
@@ -2484,6 +2492,7 @@ class PetController extends ChangeNotifier {
   void _clearBall() {
     ball = Ball.none;
     _fetching = false;
+    _fetchPraise = null;
     _ballWait = 0;
   }
 
@@ -4787,6 +4796,8 @@ class PetController extends ChangeNotifier {
 
 /// 공은 없거나, 강아지 입에 있거나, 던져져 굴러가는 중이거나, 바닥에 있어 던질 수 있다.
 enum Ball { none, carried, thrown, ready }
+
+enum TrickCommandOutcome { away, tired, missed, succeeded, learned }
 
 enum TalkOutcome {
   ai,

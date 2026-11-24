@@ -304,6 +304,85 @@ void main() {
       expect(c.stats.mood, greaterThan(mood));
     });
 
+    test('공을 가져오는 도중에도 물어와 한 번의 연습 결과를 즉시 알린다', () async {
+      final c = await make(random: _Fixed(0.99));
+      c.wake();
+      await c.collected;
+      c.takeOutBall();
+      c.arrived();
+      expect(c.throwBall(), isTrue);
+      c.ballLanded();
+      c.arrived();
+      expect(c.ball, Ball.carried);
+      final successesSeen = <int>[];
+      c.addListener(
+        () => successesSeen.add(c.tricks[Trick.fetch]?.successes ?? 0),
+      );
+      c.command(Trick.fetch);
+      expect(successesSeen, contains(1));
+      expect(c.step.tag, StepTag.carry);
+    });
+
+    test('다른 개인기 뒤 물어와를 연타하면 성공 세 번에 첫 별이 저장되고 놀이를 끝낼 수 있다', () async {
+      final c = await make(random: _Fixed(0.99));
+      c.wake();
+      await c.collected;
+      c.takeOutBall();
+      c.arrived();
+      c.command(Trick.sit);
+      c.command(Trick.jump);
+      for (var tap = 1; tap <= 9; tap++) {
+        final outcome = c.command(Trick.fetch);
+        final progress = c.tricks[Trick.fetch]!;
+        expect(progress.attempts, tap);
+        expect(progress.successes, tap ~/ 3);
+        expect(progress.stars, tap == 9 ? 1 : 0);
+        expect(outcome, switch (tap) {
+          3 || 6 => TrickCommandOutcome.succeeded,
+          9 => TrickCommandOutcome.learned,
+          _ => TrickCommandOutcome.missed,
+        });
+      }
+      c.putBallAway();
+      expect(c.ball, Ball.none);
+      await pumpEventQueue();
+      final saved = (await db.loadTricks())[Trick.fetch]!;
+      expect(saved.successes, 3);
+      expect(saved.stars, 1);
+    });
+
+    test('집 밖이거나 기운이 부족할 때 물어와가 집계되지 않은 이유를 구별한다', () async {
+      final c = await make();
+      c.wake();
+      await c.collected;
+      expect(c.startWalk(), isTrue);
+      expect(c.command(Trick.fetch), TrickCommandOutcome.away);
+      c.endWalk();
+      c.stats = c.stats.copyWith(energy: tiredEnergy - 1);
+      expect(c.command(Trick.fetch), TrickCommandOutcome.tired);
+      expect(c.tricks[Trick.fetch], isNull);
+    });
+
+    test('물어와 도중 놀이를 끝내면 다음 공놀이에 이전 명령의 칭찬이 남지 않는다', () async {
+      final c = await make(random: _Fixed(0));
+      c.wake();
+      await c.collected;
+      c.takeOutBall();
+      c.arrived();
+      c.command(Trick.fetch);
+      expect(c.step.tag, StepTag.chase);
+      c.putBallAway();
+      c.takeOutBall();
+      c.arrived();
+      expect(c.throwBall(), isTrue);
+      c.ballLanded();
+      c.arrived();
+      untilDrop(c);
+      expect(c.step.tag, StepTag.drop);
+      c.tick(1);
+      expect(c.step.thought, '또 던져 줘!');
+    });
+
     test('"점프"는 폴짝 뛰는 동작이다', () async {
       final c = await make(random: _Fixed(0));
       c.wake();

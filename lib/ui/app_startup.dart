@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'c3/c3_theme.dart';
 
@@ -23,6 +24,9 @@ class _AppStartupState extends State<AppStartup> {
       final failed =
           snapshot.connectionState == ConnectionState.done && snapshot.hasError;
       return MaterialApp(
+        key: const ValueKey('opening-pet-records'),
+        supportedLocales: const [Locale('ko')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         debugShowCheckedModeBanner: false,
         theme: buildC3Theme(),
         home: Scaffold(

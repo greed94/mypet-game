@@ -13,12 +13,38 @@ abstract final class C3Colors {
   static const hint = Color(0xFF8A786A);
   static const shadow = Color.fromRGBO(98, 72, 50, .22);
   static const stamp = Color(0xFFE0676F);
+  static const stampInk = Color(0xFFAB4050);
   static const pinkLine = Color(0xFFF4AAB7);
 
   static const tapeSky = Color.fromRGBO(186, 217, 244, .88);
   static const tapeMint = Color.fromRGBO(190, 229, 207, .88);
   static const tapePink = Color.fromRGBO(248, 202, 212, .88);
   static const tapeYellow = Color.fromRGBO(247, 225, 150, .9);
+}
+
+/// 고정 크기의 C3 화면 안에서도 문서형 화면은 기기의 글자 크기를 사용할 수 있다.
+class C3SystemTextScale extends InheritedWidget {
+  const C3SystemTextScale({
+    super.key,
+    required this.scaler,
+    required super.child,
+  });
+
+  final TextScaler scaler;
+
+  static Widget restore(BuildContext context, {required Widget child}) {
+    final source = context
+        .dependOnInheritedWidgetOfExactType<C3SystemTextScale>();
+    if (source == null) return child;
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: source.scaler),
+      child: child,
+    );
+  }
+
+  @override
+  bool updateShouldNotify(C3SystemTextScale oldWidget) =>
+      scaler != oldWidget.scaler;
 }
 
 abstract final class C3Fonts {
@@ -106,7 +132,7 @@ const c3SystemBars = SystemUiOverlayStyle(
 ThemeData buildC3Theme() {
   const scheme = ColorScheme(
     brightness: Brightness.light,
-    primary: C3Colors.stamp,
+    primary: C3Colors.stampInk,
     onPrimary: Colors.white,
     primaryContainer: Color(0xFFFBE0E5),
     onPrimaryContainer: C3Colors.ink,
@@ -200,8 +226,8 @@ ThemeData buildC3Theme() {
     iconTheme: const IconThemeData(color: C3Colors.ink2),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: C3Colors.stamp,
-        foregroundColor: Colors.white,
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
         disabledBackgroundColor: C3Colors.kraft,
         disabledForegroundColor: C3Colors.ink3,
         textStyle: juaButton,
@@ -223,7 +249,7 @@ ThemeData buildC3Theme() {
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: const Color(0xFFB8505A),
+        foregroundColor: scheme.primary,
         disabledForegroundColor: C3Colors.ink3,
         textStyle: juaButton,
         shape: buttonShape,

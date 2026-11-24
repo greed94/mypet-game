@@ -92,6 +92,24 @@ void main() {
     }
   });
 
+  testWidgets('주요 결정 버튼의 한글 글씨를 충분한 대비로 표시한다', (tester) async {
+    await mount(
+      tester,
+      Scaffold(
+        body: Center(
+          child: FilledButton(onPressed: () {}, child: const Text('이 얼굴로 바꾸기')),
+        ),
+      ),
+    );
+    await expectLater(
+      tester,
+      meetsGuideline(
+        CustomMinimumContrastGuideline(finder: find.text('이 얼굴로 바꾸기')),
+      ),
+    );
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+  });
+
   testWidgets('글씨를 150%로 키워도 돌봄 스티커의 아이콘과 이름이 한 칸에 들어간다', (tester) async {
     var tapped = false;
     await mount(

@@ -5,6 +5,7 @@ import 'package:drift_flutter/drift_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -316,48 +317,53 @@ class _MypetAppState extends State<MypetApp> {
     final busy = _resetting || _switching;
     return MaterialApp(
       title: '마이펫',
+      supportedLocales: const [Locale('ko')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       scaffoldMessengerKey: _messages,
       navigatorKey: _navigation,
       debugShowCheckedModeBanner: false,
       theme: buildC3Theme(),
-      // C3 화면은 스티커·게이지 크기가 고정이라 시스템 글자 확대에서 넘친다. 출시 전 글자 확대 지원을 다시 본다.
       builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
         value: c3SystemBars,
-        child: MediaQuery.withClampedTextScaling(
-          maxScaleFactor: 1.0,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              ExcludeFocus(
-                excluding: busy,
-                child: ExcludeSemantics(
+        child: C3SystemTextScale(
+          scaler: MediaQuery.textScalerOf(context),
+          // 고정 스티커 화면은 원래 배율, 사진 편집기는 기기 배율로 표시한다.
+          child: MediaQuery.withClampedTextScaling(
+            maxScaleFactor: 1.0,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ExcludeFocus(
                   excluding: busy,
-                  child: AbsorbPointer(absorbing: busy, child: child!),
+                  child: ExcludeSemantics(
+                    excluding: busy,
+                    child: AbsorbPointer(absorbing: busy, child: child!),
+                  ),
                 ),
-              ),
-              if (busy)
-                Material(
-                  color: C3Colors.paper,
-                  child: Center(
-                    child: Semantics(
-                      liveRegion: true,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const CircularProgressIndicator(
-                            color: C3Colors.stamp,
-                          ),
-                          const SizedBox(height: 20),
-                          Text(
-                            _resetting ? '기록을 정리하고 있어요.' : '펫을 불러오고 있어요.',
-                            style: C3Text.body,
-                          ),
-                        ],
+                if (busy)
+                  Material(
+                    color: C3Colors.paper,
+                    child: Center(
+                      child: Semantics(
+                        liveRegion: true,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const CircularProgressIndicator(
+                              color: C3Colors.stamp,
+                            ),
+                            const SizedBox(height: 20),
+                            Text(
+                              _resetting ? '기록을 정리하고 있어요.' : '펫을 불러오고 있어요.',
+                              style: C3Text.body,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

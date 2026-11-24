@@ -7,6 +7,7 @@ import '../art/photo_art.dart';
 import '../pet/pet_rules.dart';
 import '../pet/shapes.dart';
 import 'c3/c3_theme.dart';
+import 'keep_words.dart';
 import 'shape_picker.dart';
 
 Future<PetPhotoSelection?> editPetPhoto(
@@ -19,13 +20,16 @@ Future<PetPhotoSelection?> editPetPhoto(
   String confirmLabel = '이 영역 사용',
 }) => Navigator.of(context).push<PetPhotoSelection>(
   MaterialPageRoute(
-    builder: (_) => PhotoFramingScreen(
-      photo: photo,
-      initial: initial,
-      shape: shape,
-      stage: stage,
-      accent: accent,
-      confirmLabel: confirmLabel,
+    builder: (context) => C3SystemTextScale.restore(
+      context,
+      child: PhotoFramingScreen(
+        photo: photo,
+        initial: initial,
+        shape: shape,
+        stage: stage,
+        accent: accent,
+        confirmLabel: confirmLabel,
+      ),
     ),
   ),
 );
@@ -95,6 +99,7 @@ class PhotoFramingScreen extends StatefulWidget {
 class _PhotoFramingScreenState extends State<PhotoFramingScreen> {
   late PhotoFrame _frame = widget.initial.frame;
   late PetPhotoSelection _preview = widget.initial;
+  final _zoomFocus = FocusNode();
   Timer? _timer;
   bool _running = false;
   String? _error;
@@ -148,14 +153,20 @@ class _PhotoFramingScreenState extends State<PhotoFramingScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _zoomFocus.dispose();
     super.dispose();
   }
 
+  bool _wouldChange(PhotoFrame frame) {
+    final photo = widget.photo;
+    return _frame.zoom != frame.zoom.clamp(1.0, 3.0) ||
+        _frame.square(photo.width, photo.height) !=
+            frame.square(photo.width, photo.height);
+  }
+
   void _change(PhotoFrame frame) {
+    if (!_wouldChange(frame)) return;
     final value = frame.fitted(widget.photo.width, widget.photo.height);
-    final before = _frame.square(widget.photo.width, widget.photo.height);
-    final after = value.square(widget.photo.width, widget.photo.height);
-    if (before == after && _frame.zoom == value.zoom) return;
     setState(() {
       _frame = value;
       _error = null;
@@ -198,17 +209,15 @@ class _PhotoFramingScreenState extends State<PhotoFramingScreen> {
     }
   }
 
-  void _move(double dx, double dy) {
+  PhotoFrame _moved(double dx, double dy) {
     final base = _frame.fitted(widget.photo.width, widget.photo.height);
     double step(double delta, int length) => delta == 0
         ? 0
         : delta.sign * (delta.abs() < 1 / length ? 1 / length : delta.abs());
-    _change(
-      PhotoFrame(
-        x: base.x + step(dx, widget.photo.width),
-        y: base.y + step(dy, widget.photo.height),
-        zoom: base.zoom,
-      ),
+    return PhotoFrame(
+      x: base.x + step(dx, widget.photo.width),
+      y: base.y + step(dy, widget.photo.height),
+      zoom: base.zoom,
     );
   }
 
@@ -239,6 +248,7 @@ class _PhotoFramingScreenState extends State<PhotoFramingScreen> {
       (a, b) => distance(a) <= distance(b) ? a : b,
     );
     return Semantics(
+      container: true,
       label: '$role, ${names[nearest]}, RGB $red, $green, $blue',
       child: ExcludeSemantics(
         child: Container(
@@ -271,6 +281,7 @@ class _PhotoFramingScreenState extends State<PhotoFramingScreen> {
               area.side * h / photo.height,
             );
             return Semantics(
+              container: true,
               label: '원본 사진의 선택 영역',
               value:
                   '가로 ${(_frame.x * 100).round()}%, 세로 ${(_frame.y * 100).round()}%, ${_frame.zoom.toStringAsFixed(1)}배 확대',
@@ -324,23 +335,108 @@ class _PhotoFramingScreenState extends State<PhotoFramingScreen> {
     );
   }
 
+  void _confirm() {
+    if (!mounted || !_ready || ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    Navigator.of(context).pop(_preview);
+  }
+
+  void _setZoom(double value) =>
+      _change(PhotoFrame(x: _frame.x, y: _frame.y, zoom: value));
+
+  String _zoomLabel(double value) => '${value.toStringAsFixed(1)}배';
+
+  double _stepZoom(int direction) =>
+      ((_frame.zoom * 10).round() + direction).clamp(10, 30) / 10;
+
+  Widget _zoomSlider() {
+    final value = _frame.zoom;
+    final lower = _stepZoom(-1);
+    final higher = _stepZoom(1);
+    return ListenableBuilder(
+      listenable: _zoomFocus,
+      builder: (context, child) => Semantics(
+        container: true,
+        excludeSemantics: true,
+        slider: true,
+        enabled: true,
+        focusable: true,
+        focused: _zoomFocus.hasFocus,
+        onFocus: _zoomFocus.requestFocus,
+        label: '사진 확대',
+        value: _zoomLabel(value),
+        increasedValue: higher > value ? _zoomLabel(higher) : null,
+        decreasedValue: lower < value ? _zoomLabel(lower) : null,
+        onIncrease: higher > value ? () => _setZoom(_stepZoom(1)) : null,
+        onDecrease: lower < value ? () => _setZoom(_stepZoom(-1)) : null,
+        child: child,
+      ),
+      child: Slider(
+        focusNode: _zoomFocus,
+        value: value,
+        min: 1,
+        max: 3,
+        divisions: 20,
+        onChanged: _setZoom,
+      ),
+    );
+  }
+
   Widget _arrow(String label, IconData icon, double dx, double dy) =>
       IconButton(
         tooltip: label,
         icon: Icon(icon),
-        onPressed: () => _move(dx, dy),
+        onPressed: _wouldChange(_moved(dx, dy))
+            ? () => _change(_moved(dx, dy))
+            : null,
       );
 
   @override
   Widget build(BuildContext context) {
     final look = _preview.look;
+    final previewMessage =
+        _error ??
+        (!_ready
+            ? '미리보기 만드는 중…'
+            : _spriteAvailable
+            ? '픽셀 초상화와 털색'
+            : '강아지 그림을 읽지 못했어요. 초상화와 털색은 저장할 수 있어요.');
     return Scaffold(
       backgroundColor: C3Colors.paper,
-      appBar: AppBar(title: const Text('얼굴 위치 맞추기')),
       body: SafeArea(
-        top: false,
         child: Column(
           children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: kToolbarHeight),
+              child: Row(
+                children: [
+                  const SizedBox(
+                    width: kToolbarHeight,
+                    child: Center(child: BackButton()),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Semantics(
+                        header: true,
+                        namesRoute: true,
+                        child: Text(
+                          keepWords('얼굴 위치 맞추기'),
+                          semanticsLabel: '얼굴 위치 맞추기',
+                          style:
+                              Theme.of(context).appBarTheme.titleTextStyle ??
+                              Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
@@ -360,25 +456,11 @@ class _PhotoFramingScreenState extends State<PhotoFramingScreen> {
                           const SizedBox(height: 8),
                           Row(
                             children: [
-                              const Text('확대'),
-                              Expanded(
-                                child: Slider(
-                                  value: _frame.zoom,
-                                  min: 1,
-                                  max: 3,
-                                  divisions: 20,
-                                  semanticFormatterCallback: (v) =>
-                                      '${v.toStringAsFixed(1)}배',
-                                  onChanged: (v) => _change(
-                                    PhotoFrame(
-                                      x: _frame.x,
-                                      y: _frame.y,
-                                      zoom: v,
-                                    ),
-                                  ),
-                                ),
+                              const ExcludeSemantics(child: Text('확대')),
+                              Expanded(child: _zoomSlider()),
+                              ExcludeSemantics(
+                                child: Text(_zoomLabel(_frame.zoom)),
                               ),
-                              Text('${_frame.zoom.toStringAsFixed(1)}배'),
                             ],
                           ),
                           Wrap(
@@ -389,7 +471,11 @@ class _PhotoFramingScreenState extends State<PhotoFramingScreen> {
                               _arrow('아래로', Icons.arrow_downward, 0, .05),
                               _arrow('오른쪽으로', Icons.arrow_forward, .05, 0),
                               TextButton(
-                                onPressed: () => _change(const PhotoFrame()),
+                                onPressed:
+                                    _wouldChange(PhotoFrame(zoom: _frame.zoom))
+                                    ? () =>
+                                          _change(PhotoFrame(zoom: _frame.zoom))
+                                    : null,
                                 child: const Text('가운데로'),
                               ),
                             ],
@@ -414,12 +500,8 @@ class _PhotoFramingScreenState extends State<PhotoFramingScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      _error ??
-                                          (!_ready
-                                              ? '미리보기 만드는 중…'
-                                              : _spriteAvailable
-                                              ? '픽셀 초상화와 털색'
-                                              : '강아지 그림을 읽지 못했어요. 초상화와 털색은 저장할 수 있어요.'),
+                                      keepWords(previewMessage),
+                                      semanticsLabel: previewMessage,
                                     ),
                                     const SizedBox(height: 6),
                                     Wrap(
@@ -488,9 +570,7 @@ class _PhotoFramingScreenState extends State<PhotoFramingScreen> {
                 child: SizedBox(
                   width: double.infinity,
                   child: FilledButton(
-                    onPressed: _ready
-                        ? () => Navigator.of(context).pop(_preview)
-                        : null,
+                    onPressed: _ready ? _confirm : null,
                     child: Text(widget.confirmLabel),
                   ),
                 ),

@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   flame: ^1.35.1
   drift: ^2.34.4
   drift_flutter: ^0.3.1

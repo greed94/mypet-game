@@ -109,6 +109,19 @@ void main() {
       await drain();
       final framed = File('${output.path}/face.png');
       await capturePreview(tester, find.byKey(surface), framed);
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpAndSettle();
+      final confirmContext = tester.element(find.text('이 영역 사용'));
+      expect(MediaQuery.textScalerOf(confirmContext).scale(16), 32);
+      expect(find.byTooltip('뒤로'), findsOneWidget);
+      await capturePreview(
+        tester,
+        find.byKey(surface),
+        File('${output.parent.path}/mypet-photo-large-text.png'),
+      );
+      tester.platformDispatcher.clearTextScaleFactorTestValue();
+      await tester.pumpAndSettle();
       await tester.tap(confirm);
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, '다음').hitTestable());

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show SemanticsAction;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:mypet/art/photo_art.dart';
@@ -315,6 +317,214 @@ void main() {
     await tester.pumpAndSettle();
     expect(result!.selection.frame.x * 100, greaterThan(startPercent + 5));
     expect(result!.selection.frame.y, closeTo(.5, .015));
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final back in [false, true]) {
+    testWidgets(
+      back
+          ? '사진 편집을 닫은 직후 늦은 확정이 설정까지 닫지 않는다'
+          : '화면 읽기 확대 직후 늦은 확정이 예전 사진을 저장하지 않는다',
+      (tester) async {
+        final photo = (await tester.runAsync(
+          () async => preparePetPhoto(await _dog.readAsBytes()),
+        ))!;
+        var applied = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildC3Theme(),
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => Scaffold(
+                        body: PhotoFrameButton(
+                          photo: centerPetPhoto(photo),
+                          onApply: (_) => applied++,
+                        ),
+                      ),
+                    ),
+                  ),
+                  child: const Text('사진 설정 열기'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('사진 설정 열기'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('얼굴 위치 맞추기'));
+        await tester.pumpAndSettle();
+        final confirm = find.widgetWithText(FilledButton, '이 영역 사용');
+        for (
+          var i = 0;
+          i < 100 && tester.widget<FilledButton>(confirm).onPressed == null;
+          i++
+        ) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 8)),
+          );
+          await tester.pump(const Duration(milliseconds: 20));
+        }
+        expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+        if (back) {
+          await tester.binding.handlePopRoute();
+        } else {
+          tester.semantics.increase(find.semantics.byLabel('사진 확대'));
+        }
+        // 같은 화면 프레임의 두 번째 조작은 여전히 이전 버튼 노드로 들어올 수 있다.
+        tester.semantics.tap(find.semantics.byLabel('이 영역 사용'));
+        await tester.pumpAndSettle();
+        expect(applied, 0);
+        if (back) {
+          expect(find.byType(PhotoFrameButton), findsOneWidget);
+        } else {
+          expect(find.byType(PhotoFramingScreen), findsOneWidget);
+          expect(
+            tester.widget<Slider>(find.byType(Slider)).value,
+            closeTo(1.1, .001),
+          );
+        }
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump(const Duration(milliseconds: 120));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('320폭의 실제 제목 글자가 기기 두 배로 줄바꿈하고 뒤로 갈 수 있다', (tester) async {
+    tester.view.physicalSize = const Size(320, 420);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final source = (await tester.runAsync(
+      () async => preparePetPhoto(await _dog.readAsBytes()),
+    ))!;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildC3Theme(),
+        home: Scaffold(
+          body: PhotoFrameButton(
+            photo: centerPetPhoto(source),
+            onApply: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('얼굴 위치 맞추기'));
+    await tester.pumpAndSettle();
+    final title = find.byWidgetPredicate(
+      (w) =>
+          w is RichText &&
+          w.text.toPlainText().replaceAll('\u2060', '') == '얼굴 위치 맞추기',
+    );
+    final actual = tester.widget<RichText>(title);
+    expect(actual.textScaler.scale(22), 44);
+    expect(tester.getSize(title).height, greaterThan(52));
+    expect(tester.getRect(title).right, lessThanOrEqualTo(320));
+    expect(
+      tester.getRect(title).bottom,
+      lessThanOrEqualTo(tester.getRect(find.byType(ListView)).top),
+    );
+    expect(find.byType(BackButton).hitTestable(), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(PhotoFrameButton), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('큰 글씨에서 사진 확대를 읽고 실제로 움직일 수 있는 방향을 고른다', (tester) async {
+    tester.view.physicalSize = const Size(320, 620);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = (await tester.runAsync(
+      () async => preparePetPhoto(await _dog.readAsBytes()),
+    ))!;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildC3Theme(),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: PhotoFrameButton(
+            photo: centerPetPhoto(source),
+            onApply: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('얼굴 위치 맞추기'));
+    await tester.pumpAndSettle();
+    Finder arrow(String label) =>
+        find.byWidgetPredicate((w) => w is IconButton && w.tooltip == label);
+    bool enabled(String label) =>
+        tester.widget<IconButton>(arrow(label)).onPressed != null;
+    final recenter = find.widgetWithText(TextButton, '가운데로');
+    final slider = find.byType(Slider);
+    await tester.ensureVisible(slider);
+    expect(enabled('위로'), isFalse);
+    expect(enabled('아래로'), isFalse);
+    expect(enabled('왼쪽으로'), isTrue);
+    expect(tester.widget<TextButton>(recenter).onPressed, isNull);
+    await tester.pump();
+    final spokenZoom = find.semantics.byLabel('사진 확대');
+    expect(spokenZoom.evaluate().single.getSemanticsData().value, '1.0배');
+    bool offers(SemanticsAction action) =>
+        spokenZoom.evaluate().single.getSemanticsData().hasAction(action);
+    expect(offers(SemanticsAction.decrease), isFalse);
+    expect(offers(SemanticsAction.increase), isTrue);
+    tester.semantics.increase(spokenZoom);
+    await tester.pump();
+    expect(tester.widget<Slider>(slider).value, closeTo(1.1, .001));
+    expect(spokenZoom.evaluate().single.getSemanticsData().value, '1.1배');
+    expect(enabled('위로'), isTrue);
+    tester.semantics.decrease(spokenZoom);
+    await tester.pump();
+    expect(tester.widget<Slider>(slider).value, 1);
+    tester.widget<Slider>(slider).onChanged!(3);
+    await tester.pump();
+    expect(offers(SemanticsAction.increase), isFalse);
+    expect(offers(SemanticsAction.decrease), isTrue);
+    tester.semantics.decrease(spokenZoom);
+    await tester.pump();
+    expect(tester.widget<Slider>(slider).value, closeTo(2.9, .001));
+    tester.semantics.performAction(spokenZoom, SemanticsAction.focus);
+    await tester.pump();
+    expect(tester.widget<Slider>(slider).focusNode!.hasFocus, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
+    expect(tester.widget<Slider>(slider).value, closeTo(2.8, .001));
+    tester.widget<Slider>(slider).onChanged!(2);
+    await tester.pump();
+    final image = find.byKey(const ValueKey('pet-photo-frame'));
+    await tester.ensureVisible(image);
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(image);
+    await tester.tapAt(Offset(rect.right - 1, rect.center.dy));
+    await tester.pump();
+    expect(enabled('오른쪽으로'), isFalse);
+    expect(enabled('왼쪽으로'), isTrue);
+    final cropInfo = find.semantics.byLabel('원본 사진의 선택 영역');
+    expect(
+      cropInfo.evaluate().single.getSemanticsData().value,
+      contains('2.0배 확대'),
+    );
+    await tester.ensureVisible(recenter);
+    await tester.tap(recenter.hitTestable());
+    await tester.pump();
+    expect(tester.widget<Slider>(slider).value, 2);
+    expect(tester.widget<TextButton>(recenter).onPressed, isNull);
+    expect(enabled('오른쪽으로'), isTrue);
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 120));
     expect(tester.takeException(), isNull);
   });
 

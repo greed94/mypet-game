@@ -4,9 +4,13 @@
 
 ## 첫날 밥 주던 손을 기억하는 강아지 · 21초
 
+<table align="center"><tr><td align="center">
+
 https://github.com/user-attachments/assets/44847907-64d9-4ce9-b2c4-0489c881a79d
 
 [Google Drive에서 보기](https://drive.google.com/file/d/1ZUt-sSeWEIlKBoXjA6eMk6CvCuqy8UZ1/view) · [MP4 파일 받기](https://raw.githubusercontent.com/greed94/mypet-game/main/docs/portfolio/mypet-first-day.mp4)
+
+</td></tr></table>
 
 첫날 밤 보리에게 밥을 주고, 다음 날 아침에 돌아와 쓰다듬습니다. 보리는 밥 주던 손 냄새를 알아보고, 일기에는 전날 처음 만난 시각과 밥을 준 시각이 남습니다. 이 재회는 입양한 다음 생활일의 첫 손길에 일어납니다. 영상은 PC의 Flutter 테스트에서 앱 화면을 스크립트로 조작해 캡처했습니다. 다음 날 아침은 연습 시계로 앞당겼고 강아지는 로컬 기록에 반응했습니다. [재회 장면](docs/portfolio/mypet-first-return.png) · [첫날 일기](docs/portfolio/mypet-diary-trail.png)
 
